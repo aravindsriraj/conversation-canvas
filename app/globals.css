@@ -67,3 +67,15 @@ body > * {
 	position: relative;
 	z-index: 1;
 }
+
+/*
+ * Subtle pulse for the agent's "Thinking…" dot. Kept gentle on purpose —
+ * editorial restraint extends to motion. 1.6s round trip, alpha-only.
+ */
+@keyframes agent-pulse {
+	0%, 100% { opacity: 0.35; }
+	50% { opacity: 1; }
+}
+.agent-pulse {
+	animation: agent-pulse 1.6s ease-in-out infinite;
+}

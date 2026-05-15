@@ -233,8 +233,19 @@ export function AgentPanel({ roomId, isOpen, onClose }: Props) {
 				className="flex-1 overflow-y-auto px-5 py-4 flex flex-col gap-4"
 			>
 				{turns.length === 0 ? (
-					<div className="text-faded-ink text-[12px] font-mono italic leading-relaxed">
-						Ask me to summarize, rearrange, or add to the canvas.
+					<div className="flex flex-col gap-3 mt-2">
+						<div className="font-mono text-[10px] uppercase tracking-[0.22em] text-faded-ink">
+							§ Empty
+						</div>
+						<p className="font-display italic text-[15px] leading-[1.55] text-faded-ink m-0">
+							Ask me to summarize, rearrange, or add to the
+							canvas.
+						</p>
+						<div className="font-mono text-[11px] text-faded-ink mt-2 leading-relaxed">
+							<div>“What was decided about the timeline?”</div>
+							<div>“Add a question card about the budget.”</div>
+							<div>“Summarize the open proposals.”</div>
+						</div>
 					</div>
 				) : (
 					turns.map((t) => <TurnBubble key={t.id} turn={t} />)
@@ -316,9 +327,15 @@ function TurnBubble({ turn }: { turn: ChatTurn }) {
 						{turn.text}
 					</p>
 				) : turn.streaming && turn.actions.length === 0 ? (
-					<p className="font-mono text-[12px] italic text-faded-ink m-0">
-						Thinking…
-					</p>
+					<div className="flex items-center gap-2 m-0">
+						<span
+							className="w-1.5 h-1.5 bg-ochre rounded-full agent-pulse"
+							aria-hidden="true"
+						/>
+						<span className="font-mono text-[12px] italic text-faded-ink">
+							Thinking…
+						</span>
+					</div>
 				) : null}
 				{turn.actions.length > 0 ? (
 					<div className="flex flex-col gap-1.5">
