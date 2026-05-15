@@ -1,8 +1,6 @@
 'use client'
 
 import dynamic from 'next/dynamic'
-import { useEffect, useState } from 'react'
-import { RoomJoin } from '@/components/room/RoomJoin'
 
 // tldraw must not be prerendered on the server. `ssr: false` is allowed here
 // because this file is a Client Component (Next 16 requirement).
@@ -19,53 +17,22 @@ interface Enrollment {
 	color: string
 }
 
-function storageKey(roomId: string) {
-	return `cc:enrollment:${roomId}`
+interface RoomShellProps {
+	roomId: string
+	canvasName: string
+	enrollment: Enrollment
 }
 
-export function RoomShell({ roomId }: { roomId: string }) {
-	const [enrollment, setEnrollment] = useState<Enrollment | null>(null)
-	const [hydrated, setHydrated] = useState(false)
-
-	// Restore prior enrollment for this room on first mount so refreshes don't
-	// re-prompt the user.
-	useEffect(() => {
-		try {
-			const raw = localStorage.getItem(storageKey(roomId))
-			if (raw) {
-				const parsed = JSON.parse(raw) as Enrollment
-				if (
-					parsed &&
-					typeof parsed.name === 'string' &&
-					typeof parsed.color === 'string'
-				) {
-					setEnrollment(parsed)
-				}
-			}
-		} catch {
-			// localStorage unavailable / corrupt — fall through to the join form.
-		}
-		setHydrated(true)
-	}, [roomId])
-
-	const handleJoin = (name: string, color: string) => {
-		const next: Enrollment = { name, color }
-		try {
-			localStorage.setItem(storageKey(roomId), JSON.stringify(next))
-		} catch {
-			// Non-fatal; persistence is best-effort.
-		}
-		setEnrollment(next)
-	}
-
-	if (!hydrated) {
-		// Avoid flashing the join form before we know whether enrollment exists.
-		return <div className="p-6 text-zinc-500">Loading…</div>
-	}
-
-	if (!enrollment) {
-		return <RoomJoin onJoin={handleJoin} />
-	}
-
-	return <CanvasRoot roomId={roomId} enrollment={enrollment} />
+// Phase 4 onward: auth is handled by the server component (page.tsx) and
+// the Clerk session is the source of truth for identity, so there's no
+// manual join form. The enrollment payload is derived from the Clerk profile
+// + a deterministic palette color in the server component.
+export function RoomShell({ roomId, canvasName, enrollment }: RoomShellProps) {
+	return (
+		<CanvasRoot
+			roomId={roomId}
+			canvasName={canvasName}
+			enrollment={enrollment}
+		/>
+	)
 }
