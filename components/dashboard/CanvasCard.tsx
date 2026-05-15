@@ -139,12 +139,18 @@ export function CanvasCard({ canvas }: Props) {
 	)
 }
 
+// Pin the locale so server and client render identical strings — passing
+// `undefined` here defaults to each runtime's system locale, which routinely
+// differs between the Node server and the browser and triggers
+// "Hydration failed because the server rendered text didn't match the client."
+const DATE_FMT = new Intl.DateTimeFormat('en-US', {
+	year: 'numeric',
+	month: 'short',
+	day: 'numeric',
+})
+
 function formatDate(d: string | Date): string {
 	const date = typeof d === 'string' ? new Date(d) : d
 	if (Number.isNaN(date.getTime())) return ''
-	return date.toLocaleDateString(undefined, {
-		year: 'numeric',
-		month: 'short',
-		day: 'numeric',
-	})
+	return DATE_FMT.format(date)
 }
