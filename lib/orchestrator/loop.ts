@@ -159,43 +159,155 @@ export async function runOrchestratorTick(room: Room): Promise<Action[]> {
  * when b1.total is already 100000).
  */
 function filterDuplicateCreates(actions: Action[], room: Room): Action[] {
-	const out: Action[] = []
-	// Pre-index existing canvas by type with the actual content stored on
-	// the action history (not the truncated summary in canvasShapes).
-	const existingByType = new Map<string, { id: string; content: string }[]>()
+	// Three-pass dedup:
+	//   1. Text-content overlap — catches duplicate proposals/decisions/etc.
+	//      For decision_card duplicates we synthesize an update_card on the
+	//      existing decision so Gemini's refinement intent is preserved (e.g.
+	//      "Lisbon decision — first week of August").
+	//   2. L3 widget singleton — at most ONE of each L3 widget type
+	//      (priority_matrix, budget_allocator, gantt) is allowed on the
+	//      canvas. Extra creates become update_cards on the existing widget
+	//      so item/split changes still propagate.
+	//   3. Orphan-link drop — any link_nodes / lock_decision referencing an
+	//      id that was just dropped (or doesn't exist in the canvas or this
+	//      tick's surviving creates) is dropped too. Without this we leak
+	//      arrows pointing at non-existent shapes.
+
+	// --- Pre-index existing canvas (across all past actions in the room).
+	const pastByType = new Map<string, { id: string; content: string }[]>()
+	const pastL3IdByType = new Map<string, string>() // type → existing id
+	const existingIds = new Set<string>() // every model id that has a shape
 	for (const past of room.actionHistory) {
+		if ('id' in past && typeof past.id === 'string') existingIds.add(past.id)
+		if (isL3Widget(past.type)) {
+			if (!pastL3IdByType.has(past.type) && 'id' in past) {
+				pastL3IdByType.set(past.type, past.id)
+			}
+		}
 		const c = pickContent(past)
 		if (!c) continue
-		const list = existingByType.get(past.type) ?? []
+		const list = pastByType.get(past.type) ?? []
 		list.push({ id: 'id' in past ? past.id : '', content: c })
-		existingByType.set(past.type, list)
+		pastByType.set(past.type, list)
 	}
-	// Also track what we've created within THIS tick (avoid intra-tick dupes too).
-	const localByType = new Map<string, string[]>()
 
+	const droppedIds = new Set<string>() // ids that were dedup'd in this tick
+	const localL3IdByType = new Map<string, string>() // also dedup intra-tick
+	const localTextByType = new Map<string, { id: string; content: string }[]>()
+
+	const out: Action[] = []
 	for (const a of actions) {
-		const content = pickContent(a)
-		if (!content) {
+		// L3 widgets: at most one per type allowed
+		if (isL3Widget(a.type) && 'id' in a) {
+			const existingId =
+				pastL3IdByType.get(a.type) ?? localL3IdByType.get(a.type)
+			if (existingId) {
+				console.log(
+					`[orchestrator] DEDUP dropped ${a.type} (L3 singleton — keeping ${existingId})`,
+				)
+				droppedIds.add(a.id)
+				// Convert to update_card on the existing widget so item/split
+				// changes still land. Patches differ per widget; we copy
+				// "items" or "splits" from the new create.
+				const patch = l3Patch(a)
+				if (patch) {
+					out.push({
+						type: 'update_card',
+						id: existingId,
+						patch,
+					})
+				}
+				continue
+			}
+			localL3IdByType.set(a.type, a.id)
 			out.push(a)
 			continue
 		}
-		const peers = [
-			...(existingByType.get(a.type) ?? []).map((p) => p.content),
-			...(localByType.get(a.type) ?? []),
-		]
-		const dupe = peers.find((p) => tokenOverlap(p, content) >= 0.5)
-		if (dupe) {
-			console.log(
-				`[orchestrator] DEDUP dropped ${a.type} (overlap with existing) "${content.slice(0, 60)}"`,
-			)
-			continue
+
+		// Text-content cards: dedup by content overlap. Convert dedup'd
+		// decisions into update_cards on the existing decision (preserves
+		// the refinement intent).
+		const content = pickContent(a)
+		if (content) {
+			const peers = [
+				...(pastByType.get(a.type) ?? []),
+				...(localTextByType.get(a.type) ?? []),
+			]
+			const match = peers.find((p) => tokenOverlap(p.content, content) >= 0.5)
+			if (match && 'id' in a) {
+				console.log(
+					`[orchestrator] DEDUP dropped ${a.type} (overlap with ${match.id}) "${content.slice(0, 60)}"`,
+				)
+				droppedIds.add(a.id)
+				if (a.type === 'create_decision_card' && content !== match.content) {
+					// Convert to an update_card so the refinement propagates.
+					console.log(
+						`[orchestrator]   ↳ converted to update_card on ${match.id}`,
+					)
+					out.push({
+						type: 'update_card',
+						id: match.id,
+						patch: { content },
+					})
+				}
+				continue
+			}
+			const list = localTextByType.get(a.type) ?? []
+			list.push({ id: 'id' in a ? a.id : '', content })
+			localTextByType.set(a.type, list)
 		}
-		const list = localByType.get(a.type) ?? []
-		list.push(content)
-		localByType.set(a.type, list)
 		out.push(a)
 	}
-	return out
+
+	// --- Pass 3: drop orphan link_nodes / lock_decision actions whose
+	// referenced id was dropped this tick AND doesn't already exist on the
+	// canvas. Without this, arrows leak pointing at non-existent shapes.
+	const finalOut = out.filter((a) => {
+		if (a.type === 'link_nodes') {
+			const fromBad =
+				droppedIds.has(a.from) && !existingIds.has(a.from)
+			const toBad = droppedIds.has(a.to) && !existingIds.has(a.to)
+			if (fromBad || toBad) {
+				console.log(
+					`[orchestrator] DEDUP dropped link_nodes (orphan — ${a.from} → ${a.to})`,
+				)
+				return false
+			}
+		}
+		if (a.type === 'lock_decision') {
+			if (droppedIds.has(a.id) && !existingIds.has(a.id)) {
+				console.log(
+					`[orchestrator] DEDUP dropped lock_decision (orphan — ${a.id})`,
+				)
+				return false
+			}
+		}
+		return true
+	})
+
+	return finalOut
+}
+
+function isL3Widget(type: string): boolean {
+	return (
+		type === 'create_priority_matrix' ||
+		type === 'create_budget_allocator' ||
+		type === 'create_gantt'
+	)
+}
+
+/** Build an update_card patch from an L3 widget create. Items/splits move; other props stay. */
+function l3Patch(a: Action): Record<string, unknown> | null {
+	if (a.type === 'create_priority_matrix') return { items: a.items }
+	if (a.type === 'create_budget_allocator') {
+		return {
+			total: a.total,
+			currency: a.currency ?? '%',
+			splits: a.splits,
+		}
+	}
+	if (a.type === 'create_gantt') return { items: a.items }
+	return null
 }
 
 function pickContent(a: Action): string | null {
