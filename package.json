@@ -55,5 +55,11 @@
 		"tsx": "^4.22.0",
 		"typescript": "^5",
 		"vitest": "^4.1.6"
+	},
+	"pnpm": {
+		"onlyBuiltDependencies": [
+			"@clerk/shared",
+			"@biomejs/biome"
+		]
 	}
 }
