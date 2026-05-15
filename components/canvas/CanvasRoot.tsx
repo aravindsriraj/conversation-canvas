@@ -2,7 +2,7 @@
 
 import { useAuth } from '@clerk/nextjs'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { type Editor, Tldraw } from 'tldraw'
+import { type Editor, getSnapshot, loadSnapshot, Tldraw } from 'tldraw'
 import { BlockerCardUtil } from '@/components/canvas/shapes/BlockerCard'
 import { BudgetAllocatorUtil } from '@/components/canvas/shapes/BudgetAllocator'
 import { CommitmentCardUtil } from '@/components/canvas/shapes/CommitmentCard'
@@ -11,7 +11,7 @@ import { PriorityMatrixUtil } from '@/components/canvas/shapes/PriorityMatrix'
 import { ProposalCardUtil } from '@/components/canvas/shapes/ProposalCard'
 import { QuestionCardUtil } from '@/components/canvas/shapes/QuestionCard'
 import { TranscriptDrawer } from '@/components/room/TranscriptDrawer'
-import { applyAction } from '@/lib/actions/apply'
+import { applyAction, rebuildIdMapFromEditor } from '@/lib/actions/apply'
 import type { Action } from '@/lib/actions/schema'
 
 const customShapeUtils = [
@@ -42,6 +42,10 @@ export function CanvasRoot({ roomId, canvasName, enrollment }: CanvasRootProps) 
 	// latest registry without forcing the WS effect to re-run (which would
 	// tear down the socket on every speaker update — undesired).
 	const speakersRef = useRef<SpeakerRegistry>({})
+	// Set to true once the server's initial state (snapshot OR history) has
+	// been applied. Snapshot save effect waits on this so we don't overwrite
+	// the server's state with an empty editor before initial state arrives.
+	const hasLoadedRef = useRef(false)
 
 	useEffect(() => {
 		speakersRef.current = speakers
@@ -50,6 +54,89 @@ export function CanvasRoot({ roomId, canvasName, enrollment }: CanvasRootProps) 
 	const onMount = useCallback((editor: Editor) => {
 		editorRef.current = editor
 	}, [])
+
+	// Snapshot save loop. Subscribes to user-initiated document changes
+	// (drag, delete, freehand draw, in-place edit, AND orchestrator-applied
+	// shapes — applyAction runs in 'user' source by default) and PUTs a
+	// fresh snapshot to the server with a 1500ms debounce.
+	//
+	// The debounce trades a small data-loss window (refresh within ~1.5s of
+	// the last edit will lose that edit) for staying well under Neon's
+	// connection budget. Tab close triggers an immediate flush via
+	// `visibilitychange` + sendBeacon so a deliberate exit never loses data.
+	useEffect(() => {
+		if (!isLoaded || !isSignedIn) return
+
+		let timer: ReturnType<typeof setTimeout> | null = null
+		let unsubscribe: (() => void) | null = null
+		let beaconHandler: (() => void) | null = null
+		let cancelled = false
+
+		const scheduleSave = () => {
+			if (timer) clearTimeout(timer)
+			timer = setTimeout(saveNow, 1500)
+		}
+
+		const saveNow = async () => {
+			if (cancelled) return
+			const editor = editorRef.current
+			if (!editor) return
+			if (!hasLoadedRef.current) return
+			try {
+				const { document } = getSnapshot(editor.store)
+				const token = await getToken().catch(() => null)
+				if (!token) return
+				await fetch(`/api/canvases/${roomId}/snapshot`, {
+					method: 'PUT',
+					headers: {
+						'Content-Type': 'application/json',
+						Authorization: `Bearer ${token}`,
+					},
+					body: JSON.stringify({ document }),
+				})
+			} catch (err) {
+				console.warn('[canvas] snapshot save failed', err)
+			}
+		}
+
+		// Poll for the editor to become available (it mounts after Tldraw
+		// renders, which is async). Once it does, attach the listener.
+		const attachInterval = setInterval(() => {
+			const editor = editorRef.current
+			if (!editor) return
+			clearInterval(attachInterval)
+			unsubscribe = editor.store.listen(scheduleSave, {
+				source: 'user',
+				scope: 'document',
+			})
+			// Flush on tab close — visibilitychange fires reliably on tab
+			// switch / close / navigation away.
+			beaconHandler = () => {
+				if (!hasLoadedRef.current) return
+				const { document } = getSnapshot(editor.store)
+				const blob = new Blob([JSON.stringify({ document })], {
+					type: 'application/json',
+				})
+				// sendBeacon doesn't go through Clerk auth on the wire, so we
+				// rely on the cookie-session being valid. (Bearer token in the
+				// debounced path is what protects against expired sessions.)
+				navigator.sendBeacon?.(`/api/canvases/${roomId}/snapshot`, blob)
+			}
+			document.addEventListener('visibilitychange', () => {
+				if (document.visibilityState === 'hidden') beaconHandler?.()
+			})
+		}, 50)
+
+		return () => {
+			cancelled = true
+			if (timer) clearTimeout(timer)
+			clearInterval(attachInterval)
+			unsubscribe?.()
+			if (beaconHandler) {
+				document.removeEventListener('visibilitychange', beaconHandler)
+			}
+		}
+	}, [roomId, isLoaded, isSignedIn, getToken])
 
 	useEffect(() => {
 		// Don't open the WS until Clerk has a session. `getToken()` would
@@ -111,6 +198,31 @@ export function CanvasRoot({ roomId, canvasName, enrollment }: CanvasRootProps) 
 					setAccessError(m.message ?? 'access denied')
 					return
 				}
+				if (m.kind === 'snapshot') {
+					// Server returned the saved tldraw store. Restore it BEFORE
+					// any actions arrive, then rebuild the apply.ts ID_MAP so
+					// future orchestrator actions can reference shapes the
+					// snapshot just restored.
+					const editor = editorRef.current
+					if (!editor) return
+					const doc = (m as { document?: unknown }).document
+					if (doc) {
+						try {
+							// biome-ignore lint/suspicious/noExplicitAny: tldraw snapshot is structurally opaque on the wire
+							loadSnapshot(editor.store, { document: doc as any })
+							rebuildIdMapFromEditor(editor)
+							hasLoadedRef.current = true
+							requestAnimationFrame(() => {
+								try {
+									editor.zoomToFit({ animation: { duration: 600 } })
+								} catch {}
+							})
+						} catch (err) {
+							console.warn('[canvas] loadSnapshot failed', err)
+						}
+					}
+					return
+				}
 				if (m.kind === 'history' || m.kind === 'actions') {
 					const actions = m.actions ?? []
 					const editor = editorRef.current
@@ -131,6 +243,7 @@ export function CanvasRoot({ roomId, canvasName, enrollment }: CanvasRootProps) 
 						}
 					}
 					if (appliedAny) {
+						hasLoadedRef.current = true
 						requestAnimationFrame(() => {
 							try {
 								editor.zoomToFit({ animation: { duration: 600 } })

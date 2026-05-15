@@ -2,7 +2,7 @@ import { verifyToken } from '@clerk/backend'
 import type { IncomingMessage } from 'http'
 import type { Duplex } from 'stream'
 import { WebSocketServer, type WebSocket } from 'ws'
-import { getCanvasIfOwned } from '@/lib/db/canvases'
+import { getCanvasIfOwned, getSnapshot } from '@/lib/db/canvases'
 import type { RoomClient, RoomRegistry } from './room'
 
 interface IncomingMsg {
@@ -118,12 +118,28 @@ export function buildWsServer(registry: RoomRegistry) {
 				// in-memory state (empty) and the user would lose their cards.
 				await room.hydrate()
 				room.addClient(client)
-				console.log(
-					`[ws] join room=${msg.roomId} user=${userId} (clients=${room.clients.size}, history=${room.actionHistory.length})`,
-				)
-				socket.send(
-					JSON.stringify({ kind: 'history', actions: room.actionHistory }),
-				)
+
+				// Prefer the tldraw snapshot over action-history replay when it
+				// exists. The snapshot captures manual user edits (drag, delete,
+				// freehand annotation, in-place text edits) that the action log
+				// never sees. Once any snapshot is saved, it becomes the source
+				// of truth for client-side state restoration.
+				const snapshot = await getSnapshot(msg.roomId, userId)
+				if (snapshot) {
+					console.log(
+						`[ws] join room=${msg.roomId} user=${userId} (clients=${room.clients.size}, mode=snapshot)`,
+					)
+					socket.send(
+						JSON.stringify({ kind: 'snapshot', document: snapshot }),
+					)
+				} else {
+					console.log(
+						`[ws] join room=${msg.roomId} user=${userId} (clients=${room.clients.size}, mode=history, n=${room.actionHistory.length})`,
+					)
+					socket.send(
+						JSON.stringify({ kind: 'history', actions: room.actionHistory }),
+					)
+				}
 				return
 			}
 

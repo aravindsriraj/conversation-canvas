@@ -129,3 +129,52 @@ export async function deleteCanvas(
 		return false
 	}
 }
+
+/**
+ * Fetch the serialized tldraw store for a canvas, after ownership check.
+ * Returns the `document` part of `getSnapshot()` — `null` when the canvas
+ * hasn't been snapshotted yet (fresh canvas).
+ */
+export async function getSnapshot(
+	id: string,
+	ownerId: string,
+): Promise<unknown | null> {
+	try {
+		const rows = await sql<{ tldraw_snapshot: unknown | null }[]>`
+			SELECT tldraw_snapshot FROM canvases
+			WHERE id = ${id}::uuid AND owner_id = ${ownerId}
+			LIMIT 1
+		`
+		return rows[0]?.tldraw_snapshot ?? null
+	} catch {
+		return null
+	}
+}
+
+/**
+ * Persist the serialized tldraw `document` snapshot. Updates `updated_at`
+ * implicitly via the canvases_touch_updated_at trigger so the dashboard
+ * "last modified" timestamp reflects real activity (not just renames).
+ *
+ * Returns true on success, false if the canvas doesn't exist or isn't owned
+ * by `ownerId`.
+ */
+export async function saveSnapshot(
+	id: string,
+	ownerId: string,
+	document: unknown,
+): Promise<boolean> {
+	try {
+		// biome-ignore lint/suspicious/noExplicitAny: postgres-js JSONValue type is overly strict; document is a Zod-validated serializable object
+		const rows = await sql<{ id: string }[]>`
+			UPDATE canvases
+			SET tldraw_snapshot = ${sql.json(document as any)}
+			WHERE id = ${id}::uuid AND owner_id = ${ownerId}
+			RETURNING id
+		`
+		return rows.length > 0
+	} catch (err) {
+		console.error('[db] saveSnapshot failed:', (err as Error).message)
+		return false
+	}
+}

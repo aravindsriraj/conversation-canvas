@@ -19,12 +19,19 @@ CREATE TABLE IF NOT EXISTS users (
 -- the URL — `/room/<id>`. Names are user-chosen and can collide across
 -- users (it's just a label).
 CREATE TABLE IF NOT EXISTS canvases (
-	id            UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-	owner_id      TEXT        NOT NULL REFERENCES users(clerk_id) ON DELETE CASCADE,
-	name          TEXT        NOT NULL,
-	created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-	updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+	owner_id        TEXT        NOT NULL REFERENCES users(clerk_id) ON DELETE CASCADE,
+	name            TEXT        NOT NULL,
+	-- Serialized tldraw store. Whole-document snapshots so that manual edits
+	-- (drag, delete, freehand annotation, in-place text edit) survive a reload —
+	-- the action log only captures what the orchestrator emits.
+	tldraw_snapshot JSONB,
+	created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+	updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Idempotent migration for existing databases.
+ALTER TABLE canvases ADD COLUMN IF NOT EXISTS tldraw_snapshot JSONB;
 
 CREATE INDEX IF NOT EXISTS canvases_owner_id_idx ON canvases(owner_id);
 

@@ -27,6 +27,43 @@ function tldrawId(modelId: string): TLShapeId {
 	return id
 }
 
+/**
+ * After a snapshot restore the editor already has all the shapes but our
+ * module-level ID_MAP is empty (page reloaded). Walk the editor's current
+ * shapes and re-derive the modelId → TLShapeId mapping. We rely on
+ * `createShapeId(modelId)` returning `"shape:" + modelId` deterministically;
+ * if tldraw ever changes that prefix this needs to walk shape.meta instead.
+ *
+ * Idempotent and cheap. Call after `loadSnapshot()`.
+ */
+export function rebuildIdMapFromEditor(editor: Editor): void {
+	ID_MAP.clear()
+	for (const shape of editor.getCurrentPageShapes()) {
+		const tlId = shape.id // 'shape:p1' style
+		// Strip the 'shape:' prefix that tldraw's createShapeId prepends. Any
+		// shape that doesn't start with that prefix (shouldn't happen with
+		// tldraw v3) is skipped.
+		if (tlId.startsWith('shape:')) {
+			ID_MAP.set(tlId.slice(6), tlId)
+		}
+	}
+}
+
+/**
+ * Idempotent createShape: if the deterministic id already has a shape in
+ * the editor (because loadSnapshot restored it), skip creation. Returns
+ * whether the shape was actually created. Used inside every action case
+ * below so a snapshot+history replay doesn't duplicate shapes.
+ */
+function createShapeIfMissing(
+	editor: Editor,
+	spec: Parameters<Editor['createShape']>[0],
+): boolean {
+	if (editor.getShape(spec.id as TLShapeId)) return false
+	editor.createShape(spec)
+	return true
+}
+
 function getExistingBoxes(editor: Editor): {
 	byId: Map<string, ShapeBox>
 	byType: Map<string, ShapeBox[]>
@@ -66,7 +103,7 @@ export function applyAction(editor: Editor, action: Action, speakers: Registry) 
 				defaultW: 280,
 				defaultH: 140,
 			})
-			editor.createShape({
+			createShapeIfMissing(editor, {
 				id: tldrawId(action.id),
 				type: 'proposal-card',
 				x: layout.x,
@@ -90,7 +127,7 @@ export function applyAction(editor: Editor, action: Action, speakers: Registry) 
 				defaultW: 320,
 				defaultH: 160,
 			})
-			editor.createShape({
+			createShapeIfMissing(editor, {
 				id: tldrawId(action.id),
 				type: 'decision-card',
 				x: layout.x,
@@ -143,7 +180,7 @@ export function applyAction(editor: Editor, action: Action, speakers: Registry) 
 				displayName: action.ownerSpeakerId,
 				color: '#71717a',
 			}
-			editor.createShape({
+			createShapeIfMissing(editor, {
 				id: tldrawId(action.id),
 				type: 'commitment-card',
 				x: layout.x,
@@ -166,7 +203,7 @@ export function applyAction(editor: Editor, action: Action, speakers: Registry) 
 				defaultW: 280,
 				defaultH: 100,
 			})
-			editor.createShape({
+			createShapeIfMissing(editor, {
 				id: tldrawId(action.id),
 				type: 'blocker-card',
 				x: layout.x,
@@ -186,7 +223,7 @@ export function applyAction(editor: Editor, action: Action, speakers: Registry) 
 				displayName: action.askedBySpeakerId,
 				color: '#71717a',
 			}
-			editor.createShape({
+			createShapeIfMissing(editor, {
 				id: tldrawId(action.id),
 				type: 'question-card',
 				x: layout.x,
@@ -328,7 +365,7 @@ export function applyAction(editor: Editor, action: Action, speakers: Registry) 
 				defaultW: 420,
 				defaultH: 380,
 			})
-			editor.createShape({
+			createShapeIfMissing(editor, {
 				id: tldrawId(action.id),
 				type: 'priority-matrix',
 				x: layout.x,
@@ -344,7 +381,7 @@ export function applyAction(editor: Editor, action: Action, speakers: Registry) 
 				defaultW: 380,
 				defaultH: 240,
 			})
-			editor.createShape({
+			createShapeIfMissing(editor, {
 				id: tldrawId(action.id),
 				type: 'budget-allocator',
 				x: layout.x,
