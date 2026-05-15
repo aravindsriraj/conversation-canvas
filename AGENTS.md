@@ -29,7 +29,7 @@ When you need current API details, consult these BEFORE pattern-matching against
 
 ## Orchestrator model
 
-The Gemini model for the orchestrator is **`gemini-3-flash-preview`**. Do not downgrade to `gemini-2.5-flash` or pick a different snapshot. If a call fails with "model not found", consult the gemini-api-dev skill and ask before swapping.
+The Gemini model for the orchestrator is **`gemini-3.1-flash-lite-preview`** — Google's fastest / cheapest Flash tier. Picked over `gemini-3-flash-preview` because the orchestrator only needs short-context reasoning (~30s transcript + tiny canvas snapshot) and we'd rather optimize latency than depth here. If you observe quality regressions (missed decisions, weird link inferences, dedup misses), the fallback is `gemini-3-flash-preview`. Do NOT use `gemini-2.5-flash` or earlier — those are deprecated per the gemini-api-dev skill.
 
 ---
 

@@ -4,7 +4,13 @@ import type { Room } from '@server/room'
 import { ActionStreamSchema, type Action } from '@/lib/actions/schema'
 import { SYSTEM_PROMPT, buildUserPrompt } from '@/lib/orchestrator/prompt'
 
-const MODEL_ID = 'gemini-3-flash-preview'
+// gemini-3.1-flash-lite-preview — Google's fastest / cheapest Flash tier,
+// tuned for high-frequency lightweight tasks. We don't need long-context
+// reasoning here (the orchestrator sees ~30s of transcript + a tiny canvas
+// snapshot), so the lite tier is the right speed/cost trade. If we observe
+// quality regressions (missing decisions, weird link inferences), bump to
+// gemini-3-flash-preview as a fallback.
+const MODEL_ID = 'gemini-3.1-flash-lite-preview'
 
 /**
  * One pass of the orchestrator. Reads the buffered transcript window,
