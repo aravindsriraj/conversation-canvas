@@ -4,7 +4,7 @@ import type { Room } from '@server/room'
 import { ActionStreamSchema, type Action } from '@/lib/actions/schema'
 import { SYSTEM_PROMPT, buildUserPrompt } from '@/lib/orchestrator/prompt'
 
-const MODEL_ID = 'gemini-2.5-flash'
+const MODEL_ID = 'gemini-3-flash-preview'
 
 /**
  * One pass of the orchestrator. Reads the buffered transcript window,
