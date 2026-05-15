@@ -1,7 +1,7 @@
 import { createServer } from 'http'
 import { parse } from 'url'
 import next from 'next'
-import { attachWsServer } from './ws'
+import { buildWsServer, makeUpgradeRouter } from './ws'
 import { RoomRegistry, type Room } from './room'
 import { runOrchestratorTick } from '@/lib/orchestrator/loop'
 
@@ -26,12 +26,19 @@ async function onTick(room: Room) {
 }
 
 app.prepare().then(() => {
+	// `getUpgradeHandler` must be called AFTER `prepare()` — Next throws otherwise.
+	// In dev, this is what carries HMR / Turbopack browser-side websockets.
+	const upgradeToNext = app.getUpgradeHandler()
+
 	const server = createServer((req, res) => {
 		const parsed = parse(req.url ?? '/', true)
 		handle(req, res, parsed)
 	})
+
 	const registry = new RoomRegistry(onTick)
-	attachWsServer(server, registry)
+	const wss = buildWsServer(registry)
+	server.on('upgrade', makeUpgradeRouter(wss, upgradeToNext))
+
 	server.listen(port, () => {
 		console.log(`> Conversation Canvas on http://localhost:${port}`)
 	})

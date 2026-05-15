@@ -76,17 +76,45 @@ export function TranscriptDrawer({ wsRef, roomId }: Props) {
 	}
 
 	return (
-		<div className="fixed right-0 top-0 h-screen w-96 bg-white/95 backdrop-blur border-l border-zinc-200 z-50 flex flex-col">
-			<div className="p-3 border-b border-zinc-200 flex items-center justify-between">
-				<span className="font-semibold text-sm">Transcript</span>
-				<button
-					type="button"
-					onClick={recording ? stop : start}
-					className="px-3 py-1 rounded text-sm bg-zinc-900 text-white hover:bg-zinc-700"
-				>
-					{recording ? 'Stop' : 'Start mic'}
-				</button>
-			</div>
+		<>
+			{/*
+				Floating mic FAB — always visible, sits above tldraw's overlay layer
+				(tldraw uses z-index ~300 for menus/style pickers, so we pin to 500).
+				The side drawer on the right is for reading; this is for control.
+			*/}
+			<button
+				type="button"
+				onClick={recording ? stop : start}
+				aria-label={recording ? 'Stop recording' : 'Start recording'}
+				className={[
+					'fixed top-4 left-1/2 -translate-x-1/2 z-[500]',
+					'px-5 py-2.5 rounded-full text-sm font-semibold shadow-lg',
+					'transition-colors flex items-center gap-2',
+					recording
+						? 'bg-red-600 text-white hover:bg-red-700 ring-2 ring-red-300 animate-pulse'
+						: 'bg-zinc-900 text-white hover:bg-zinc-700',
+				].join(' ')}
+			>
+				<span
+					className={[
+						'inline-block w-2.5 h-2.5 rounded-full',
+						recording ? 'bg-white' : 'bg-red-500',
+					].join(' ')}
+				/>
+				{recording ? 'Stop recording' : 'Start mic'}
+			</button>
+
+			<div className="fixed right-0 top-0 h-screen w-96 bg-white/95 backdrop-blur border-l border-zinc-200 z-[400] flex flex-col">
+				<div className="p-3 border-b border-zinc-200 flex items-center justify-between">
+					<span className="font-semibold text-sm">Transcript</span>
+					<button
+						type="button"
+						onClick={recording ? stop : start}
+						className="px-3 py-1 rounded text-sm bg-zinc-900 text-white hover:bg-zinc-700"
+					>
+						{recording ? 'Stop' : 'Start mic'}
+					</button>
+				</div>
 			{error ? (
 				<div className="px-3 py-2 text-xs text-red-700 bg-red-50 border-b border-red-100">
 					{error}
@@ -111,5 +139,6 @@ export function TranscriptDrawer({ wsRef, roomId }: Props) {
 				<div ref={endRef} />
 			</div>
 		</div>
+		</>
 	)
 }

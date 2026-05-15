@@ -1,5 +1,6 @@
 import { WebSocketServer, type WebSocket } from 'ws'
-import type { IncomingMessage, Server as HttpServer } from 'http'
+import type { IncomingMessage } from 'http'
+import type { Duplex } from 'stream'
 import type { RoomRegistry, RoomClient } from './room'
 
 interface IncomingMsg {
@@ -9,8 +10,14 @@ interface IncomingMsg {
 	payload?: any
 }
 
-export function attachWsServer(server: HttpServer, registry: RoomRegistry) {
-	const wss = new WebSocketServer({ server, path: '/ws' })
+/**
+ * Build a WebSocketServer in `noServer` mode and a `handleUpgrade` callback the
+ * custom server can route to when the upgrade URL matches `/ws`. Other paths
+ * (notably Next.js's `/_next/webpack-hmr`) must NOT come through here, otherwise
+ * the `ws` library kills them.
+ */
+export function buildWsServer(registry: RoomRegistry) {
+	const wss = new WebSocketServer({ noServer: true })
 
 	wss.on('connection', (socket: WebSocket, _req: IncomingMessage) => {
 		const client: RoomClient = { socket }
@@ -62,4 +69,27 @@ export function attachWsServer(server: HttpServer, registry: RoomRegistry) {
 	})
 
 	return wss
+}
+
+/**
+ * Returns an HTTP upgrade router: send `/ws` to our WS server, everything else
+ * (Next.js HMR, etc.) to the provided `fallback` upgrade handler. Path comparison
+ * is done on the URL pathname only — query strings on Next's HMR URL are ignored.
+ */
+export function makeUpgradeRouter(
+	wss: WebSocketServer,
+	fallback: (req: IncomingMessage, socket: Duplex, head: Buffer) => void | Promise<void>,
+) {
+	return (req: IncomingMessage, socket: Duplex, head: Buffer) => {
+		const url = req.url ?? '/'
+		const pathname = url.split('?')[0]
+		if (pathname === '/ws') {
+			// biome-ignore lint/suspicious/noExplicitAny: ws's Socket type is from net; the upgrade Duplex is structurally compatible
+			wss.handleUpgrade(req, socket as any, head, (ws) => {
+				wss.emit('connection', ws, req)
+			})
+			return
+		}
+		void fallback(req, socket, head)
+	}
 }
