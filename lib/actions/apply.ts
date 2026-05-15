@@ -99,14 +99,18 @@ export function applyAction(editor: Editor, action: Action, speakers: Registry) 
 				},
 			})
 			// Mark source proposals as superseded/decided so the user sees the
-			// proposal → decision transition reflected on existing cards.
+			// proposal → decision transition reflected on existing cards. ONLY
+			// proposal-card shapes carry a `status` prop — Gemini occasionally
+			// puts non-proposal shapes (budget-allocator, matrix) into
+			// sourceProposalIds; ignore them rather than throwing a schema
+			// validation error on the wrong prop.
 			if (action.sourceProposalIds) {
 				for (const sid of action.sourceProposalIds) {
 					const tid = ID_MAP.get(sid)
 					if (!tid) continue
 					// biome-ignore lint/suspicious/noExplicitAny: cross-shape prop shape
 					const s: any = editor.getShape(tid)
-					if (s) {
+					if (s && s.type === 'proposal-card') {
 						editor.updateShape({
 							id: tid,
 							type: s.type,
