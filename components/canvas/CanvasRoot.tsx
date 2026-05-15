@@ -165,10 +165,16 @@ export function CanvasRoot({ roomId, canvasName, enrollment }: CanvasRootProps) 
 						token,
 					}),
 				)
-				// Auto-enroll using the Clerk-derived identity (server resolved
-				// firstName/fullName/username/email + deterministic color). No
-				// manual form anymore now that we have a real authenticated user.
-				ws?.send(
+				// `enroll` is sent AFTER we hear back from the server's join handler
+				// (see onmessage below). The join is now async (token verify + DB
+				// ownership check + DB hydrate), so firing enroll on `onopen`
+				// races ahead of the server's `client.clerkUserId` being set.
+			}
+			let enrollmentSent = false
+			const sendEnrollment = () => {
+				if (enrollmentSent || ws?.readyState !== 1) return
+				enrollmentSent = true
+				ws.send(
 					JSON.stringify({
 						kind: 'enroll',
 						roomId,
@@ -204,26 +210,31 @@ export function CanvasRoot({ roomId, canvasName, enrollment }: CanvasRootProps) 
 					// future orchestrator actions can reference shapes the
 					// snapshot just restored.
 					const editor = editorRef.current
-					if (!editor) return
-					const doc = (m as { document?: unknown }).document
-					if (doc) {
-						try {
-							// biome-ignore lint/suspicious/noExplicitAny: tldraw snapshot is structurally opaque on the wire
-							loadSnapshot(editor.store, { document: doc as any })
-							rebuildIdMapFromEditor(editor)
-							hasLoadedRef.current = true
-							requestAnimationFrame(() => {
-								try {
-									editor.zoomToFit({ animation: { duration: 600 } })
-								} catch {}
-							})
-						} catch (err) {
-							console.warn('[canvas] loadSnapshot failed', err)
+					if (editor) {
+						const doc = (m as { document?: unknown }).document
+						if (doc) {
+							try {
+								// biome-ignore lint/suspicious/noExplicitAny: tldraw snapshot is structurally opaque on the wire
+								loadSnapshot(editor.store, { document: doc as any })
+								rebuildIdMapFromEditor(editor)
+								hasLoadedRef.current = true
+								requestAnimationFrame(() => {
+									try {
+										editor.zoomToFit({ animation: { duration: 600 } })
+									} catch {}
+								})
+							} catch (err) {
+								console.warn('[canvas] loadSnapshot failed', err)
+							}
 						}
 					}
+					// Server confirmed our authenticated join — safe to enroll now.
+					sendEnrollment()
 					return
 				}
 				if (m.kind === 'history' || m.kind === 'actions') {
+					// First `history` reply confirms the join handshake. Enroll now.
+					if (m.kind === 'history') sendEnrollment()
 					const actions = m.actions ?? []
 					const editor = editorRef.current
 					if (!editor) {

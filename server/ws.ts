@@ -59,26 +59,15 @@ export function buildWsServer(registry: RoomRegistry) {
 		let currentRoomId: string | null = null
 		console.log('[ws] client connected')
 
-		socket.on('message', async (raw) => {
-			let msg: IncomingMsg
-			try {
-				msg = JSON.parse(raw.toString())
-			} catch {
-				console.warn('[ws] malformed JSON')
-				return
-			}
-			if (
-				!msg ||
-				typeof msg.roomId !== 'string' ||
-				typeof msg.kind !== 'string'
-			) {
-				console.warn('[ws] bad message shape', {
-					kind: msg?.kind,
-					roomId: msg?.roomId,
-				})
-				return
-			}
+		// The join handler is async (token verify + DB ownership + hydrate),
+		// so messages that the client fires immediately after `join` (enroll,
+		// transcript) can arrive while the server is still authenticating. We
+		// buffer those until join completes, then drain in order. Without this
+		// buffer the first ~500ms of any transcript can be lost on reconnect.
+		const pending: IncomingMsg[] = []
+		let joinInProgress = false
 
+		const handleMessage = async (msg: IncomingMsg) => {
 			if (msg.kind === 'join') {
 				// Two-factor gate:
 				//   1. Token must verify against the Clerk backend.
@@ -198,6 +187,63 @@ export function buildWsServer(registry: RoomRegistry) {
 			}
 
 			console.warn(`[ws] unknown kind=${msg.kind}`)
+		}
+
+		socket.on('message', async (raw) => {
+			let msg: IncomingMsg
+			try {
+				msg = JSON.parse(raw.toString())
+			} catch {
+				console.warn('[ws] malformed JSON')
+				return
+			}
+			if (
+				!msg ||
+				typeof msg.roomId !== 'string' ||
+				typeof msg.kind !== 'string'
+			) {
+				console.warn('[ws] bad message shape', {
+					kind: msg?.kind,
+					roomId: msg?.roomId,
+				})
+				return
+			}
+
+			// Buffer non-join messages while the async join handler runs. Once
+			// join completes (success or fail), drain the buffer in order. This
+			// fixes the "transcript before authenticated join" race after a WS
+			// reconnect where the client sends enroll + transcripts immediately.
+			if (msg.kind === 'join') {
+				joinInProgress = true
+				try {
+					await handleMessage(msg)
+				} finally {
+					joinInProgress = false
+					// Only drain if join actually authenticated the socket.
+					if (client.clerkUserId) {
+						const queued = pending.splice(0, pending.length)
+						for (const q of queued) {
+							try {
+								await handleMessage(q)
+							} catch (err) {
+								console.error('[ws] drain handler failed:', err)
+							}
+						}
+					} else {
+						pending.length = 0 // socket will be closed by handleMessage
+					}
+				}
+				return
+			}
+
+			if (joinInProgress || !client.clerkUserId) {
+				// Cap buffer to a sane size — protects against a malicious or
+				// runaway client flooding the queue before authenticating.
+				if (pending.length < 50) pending.push(msg)
+				return
+			}
+
+			await handleMessage(msg)
 		})
 
 		socket.on('close', () => {
