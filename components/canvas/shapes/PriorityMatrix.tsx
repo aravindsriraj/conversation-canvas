@@ -92,7 +92,14 @@ export class PriorityMatrixUtil extends ShapeUtil<PriorityMatrixShape> {
 									style={{ left: x, top: y }}
 									title={it.label}
 								>
-									<span className="absolute left-4 top-0 text-[11px] text-zinc-800 whitespace-nowrap">
+									{/* Label sits BELOW the dot, centered horizontally, with
+										pointer-events disabled so it doesn't intercept hover/clicks
+										from neighbouring dots. Items that share near-identical
+										coords will still visually crowd — that's content-side. */}
+									<span
+										className="absolute top-4 left-1/2 -translate-x-1/2 text-[11px] text-zinc-800 whitespace-nowrap"
+										style={{ pointerEvents: 'none' }}
+									>
 										{it.label}
 									</span>
 								</div>

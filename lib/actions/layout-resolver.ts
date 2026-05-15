@@ -18,7 +18,10 @@ interface ResolveOpts {
   gap?: number
 }
 
-const GAP = 32
+// Bumped from 32 → 64 in the Phase-3 polish pass: at 32px the cards visually
+// crowded each other and arrow labels from `link_nodes` overlapped neighbouring
+// shapes. 64px gives the canvas room to breathe without making it sparse.
+const GAP = 64
 
 export function resolveLayout(
   hint: LayoutHint | undefined,
