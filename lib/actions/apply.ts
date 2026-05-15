@@ -275,8 +275,21 @@ export function applyAction(editor: Editor, action: Action, speakers: Registry) 
 			}
 			break
 		}
-		// L3 widgets — Phase 3 implements these shape utils.
-		case 'create_priority_matrix':
+		case 'create_priority_matrix': {
+			const layout = resolveLayout(action.layout, existing, {
+				defaultW: 420,
+				defaultH: 380,
+			})
+			editor.createShape({
+				id: tldrawId(action.id),
+				type: 'priority-matrix',
+				x: layout.x,
+				y: layout.y,
+				props: { w: 420, h: 380, items: action.items },
+			})
+			break
+		}
+		// L3 widgets still to implement.
 		case 'create_budget_allocator':
 		case 'create_gantt':
 		case 'create_bespoke_widget':

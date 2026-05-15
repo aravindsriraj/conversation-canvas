@@ -5,6 +5,7 @@ import { type Editor, Tldraw } from 'tldraw'
 import { BlockerCardUtil } from '@/components/canvas/shapes/BlockerCard'
 import { CommitmentCardUtil } from '@/components/canvas/shapes/CommitmentCard'
 import { DecisionCardUtil } from '@/components/canvas/shapes/DecisionCard'
+import { PriorityMatrixUtil } from '@/components/canvas/shapes/PriorityMatrix'
 import { ProposalCardUtil } from '@/components/canvas/shapes/ProposalCard'
 import { QuestionCardUtil } from '@/components/canvas/shapes/QuestionCard'
 import { TranscriptDrawer } from '@/components/room/TranscriptDrawer'
@@ -17,6 +18,7 @@ const customShapeUtils = [
 	CommitmentCardUtil,
 	BlockerCardUtil,
 	QuestionCardUtil,
+	PriorityMatrixUtil,
 ]
 
 type SpeakerRegistry = Record<string, { displayName: string; color: string }>
