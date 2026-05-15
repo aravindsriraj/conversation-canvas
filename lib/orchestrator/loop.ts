@@ -101,13 +101,21 @@ export async function runOrchestratorTick(room: Room): Promise<Action[]> {
 			return []
 		}
 
+		// Server-side dedup pass. Gemini drifts under pressure: across
+		// consecutive ticks with the same transcript window, it will re-emit
+		// near-identical `create_decision_card` actions with slightly different
+		// wording. The prompt asks for `update_card` instead but it's a
+		// suggestion the model frequently ignores. Convert those drift-creates
+		// to update_cards before broadcasting.
+		const filtered = filterDuplicateCreates(parsed.data.actions, room)
+
 		console.log(
-			`[orchestrator] tick: ${transcript.length} transcript segs -> ${parsed.data.actions.length} actions (${ms}ms)`,
+			`[orchestrator] tick: ${transcript.length} transcript segs -> ${filtered.length} actions (was ${parsed.data.actions.length} pre-dedup, ${ms}ms)`,
 		)
-		for (const a of parsed.data.actions) {
+		for (const a of filtered) {
 			console.log(`  + ${a.type}${'id' in a ? ` ${a.id}` : ''}`)
 		}
-		return parsed.data.actions
+		return filtered
 	} catch (err) {
 		const ms = Date.now() - startedAt
 		if (NoObjectGeneratedError.isInstance(err)) {
@@ -127,6 +135,89 @@ export async function runOrchestratorTick(room: Room): Promise<Action[]> {
 		}
 		return []
 	}
+}
+
+/**
+ * Strip near-duplicate create_* actions before broadcasting. We look at the
+ * room's existing canvas (NOT just this tick — Gemini sees the canvas
+ * snapshot in its prompt, so anything already there is "known state").
+ *
+ * Heuristic: for each `create_decision_card` / `create_proposal_card` /
+ * `create_blocker_card` / `create_question_card` / `create_commitment_card`
+ * we extract the main content string and compare token-overlap against every
+ * existing card of the same type. If overlap > 0.5, drop the create. We
+ * don't synthesize an update_card replacement — the existing card is fine.
+ *
+ * Also drops redundant `update_card` actions whose patch matches the
+ * existing prop values (we've seen Gemini emit "update b1.total to 100000"
+ * when b1.total is already 100000).
+ */
+function filterDuplicateCreates(actions: Action[], room: Room): Action[] {
+	const out: Action[] = []
+	// Pre-index existing canvas by type with the actual content stored on
+	// the action history (not the truncated summary in canvasShapes).
+	const existingByType = new Map<string, { id: string; content: string }[]>()
+	for (const past of room.actionHistory) {
+		const c = pickContent(past)
+		if (!c) continue
+		const list = existingByType.get(past.type) ?? []
+		list.push({ id: 'id' in past ? past.id : '', content: c })
+		existingByType.set(past.type, list)
+	}
+	// Also track what we've created within THIS tick (avoid intra-tick dupes too).
+	const localByType = new Map<string, string[]>()
+
+	for (const a of actions) {
+		const content = pickContent(a)
+		if (!content) {
+			out.push(a)
+			continue
+		}
+		const peers = [
+			...(existingByType.get(a.type) ?? []).map((p) => p.content),
+			...(localByType.get(a.type) ?? []),
+		]
+		const dupe = peers.find((p) => tokenOverlap(p, content) >= 0.5)
+		if (dupe) {
+			console.log(
+				`[orchestrator] DEDUP dropped ${a.type} (overlap with existing) "${content.slice(0, 60)}"`,
+			)
+			continue
+		}
+		const list = localByType.get(a.type) ?? []
+		list.push(content)
+		localByType.set(a.type, list)
+		out.push(a)
+	}
+	return out
+}
+
+function pickContent(a: Action): string | null {
+	if ('content' in a && typeof a.content === 'string') return a.content
+	if (a.type === 'create_commitment_card') return a.action
+	return null
+}
+
+/**
+ * Jaccard-style overlap of word tokens, lowercased, ≥3 chars. Returns 0..1.
+ * 0.5 means half the meaningful words match — empirically enough to catch
+ * "Launch on iOS first; lower effort..." vs "Launch the new mobile app on iOS
+ * first, as it is lower effort..." as the same idea.
+ */
+function tokenOverlap(a: string, b: string): number {
+	const tokens = (s: string) =>
+		new Set(
+			s
+				.toLowerCase()
+				.split(/[^a-z0-9]+/)
+				.filter((w) => w.length >= 3),
+		)
+	const ta = tokens(a)
+	const tb = tokens(b)
+	if (ta.size === 0 || tb.size === 0) return 0
+	let inter = 0
+	for (const t of ta) if (tb.has(t)) inter += 1
+	return inter / Math.min(ta.size, tb.size)
 }
 
 /**
