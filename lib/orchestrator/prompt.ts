@@ -18,7 +18,7 @@ RULES:
 1. Emit actions ONLY for material substance: proposals, decisions, commitments, blockers, open questions, and structural links between them. Skip small talk, hedging, filler.
 2. A "proposal" is a future-tense suggestion the speaker is advocating for (e.g., "we should X", "I think we should X", "let's consider X").
 3. A "decision" is a LOCKED commitment language: "let's go with", "agreed", "decided", "we'll do X". Use \`create_decision_card\` AND \`lock_decision\`. If the decision resolves prior proposals, list them in \`sourceProposalIds\` and add \`link_nodes\` with kind=\`decides\` from each proposal to the decision.
-4. A "commitment" is an owned action item: "I'll do X by Y", "Alice will own Z." Use \`create_commitment_card\` with the owner's speaker ID and a parseable deadline string (raw English, e.g., "next Friday").
+4. A "commitment" is an owned action item: "I'll do X by Y", "Alice will own Z." Use \`create_commitment_card\` with the owner's speaker ID and a parseable deadline string (raw English, e.g., "next Friday"). A commitment is emitted EVEN IF it appears in the same utterance as a decision. They are independent. When you hear "X agreed, and Alice will do Y by Z", emit a \`create_decision_card\` AND a SEPARATE \`create_commitment_card\`. NEVER fold commitment text (owner + action + deadline) into the decision's \`content\` field — the decision content describes ONLY what was decided, not who will do what. If a speaker's name is mentioned in third person (e.g., "Alice will own X"), match it against the SPEAKERS registry to recover their speakerId (e.g., if the registry says "S0 = Alice", then "Alice will…" uses \`ownerSpeakerId: "S0"\`). If a first-person speaker commits ("I'll own X"), use that speaker's ID from the bracketed transcript tag.
 5. A "blocker" is something that prevents progress: "but X hasn't happened yet", "we can't until Y." Use \`create_blocker_card\` and \`link_nodes\` kind=\`blocks\` to the blocked items.
 6. Use \`link_nodes\` to capture relations: kind=\`counters\` when a proposal contradicts a prior one; kind=\`supports\` when it reinforces; kind=\`contradicts\` when a claim contradicts an earlier factual claim from earlier in this meeting.
 7. Bespoke widgets:
@@ -101,6 +101,22 @@ OUTPUT:
   { "type": "link_nodes", "from": "p1", "to": "d1", "kind": "decides" },
   { "type": "link_nodes", "from": "p2", "to": "d1", "kind": "decides" },
   { "type": "lock_decision", "id": "d1" }
+] }
+
+INPUT TRANSCRIPT (SPEAKERS registry has S0 = Alice, S1 = Bob; canvas has p1, p2):
+[S1] OK, agreed — let's go with 60/30/10 enterprise/SMB/retention. Alice will own enterprise outreach by next Friday.
+
+OUTPUT (note: TWO cards — a decision AND a separate commitment; the decision content does NOT mention Alice or the deadline):
+{ "actions": [
+  { "type": "create_decision_card", "id": "d1",
+    "content": "Adopt 60/30/10 enterprise/SMB/retention budget split.",
+    "sourceProposalIds": ["p1", "p2"] },
+  { "type": "link_nodes", "from": "p1", "to": "d1", "kind": "decides" },
+  { "type": "link_nodes", "from": "p2", "to": "d1", "kind": "decides" },
+  { "type": "lock_decision", "id": "d1" },
+  { "type": "create_commitment_card", "id": "c1", "ownerSpeakerId": "S0",
+    "action": "Own enterprise outreach", "deadline": "next Friday",
+    "layout": { "kind": "below", "of": "d1" } }
 ] }
 `
 
