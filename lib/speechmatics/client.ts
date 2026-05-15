@@ -12,6 +12,13 @@ export type TranscriptHandler = (segment: TranscriptSegment) => void
 
 export interface SpeechmaticsStreamHandle {
 	stop: () => Promise<void>
+	/**
+	 * Live AnalyserNode tapped off the mic stream. UI layers can read
+	 * time-domain data (`getByteTimeDomainData`) to draw a waveform without
+	 * doing any extra audio plumbing. Optional because the analyser is wired
+	 * up only after the recorder grants mic access — callers should null-check.
+	 */
+	analyser?: AnalyserNode
 }
 
 const LOG = '[speechmatics]'
@@ -197,6 +204,11 @@ export async function startSpeechmaticsStream(
 
 	let stopped = false
 	return {
+		// PCMRecorder builds its own AnalyserNode internally (see
+		// node_modules/@speechmatics/browser-audio-input dist .d.ts: `get analyser`).
+		// We expose it so the FAB can paint a live oscilloscope without spinning up
+		// a second audio pipeline.
+		analyser: recorder.analyser,
 		stop: async () => {
 			if (stopped) return
 			stopped = true

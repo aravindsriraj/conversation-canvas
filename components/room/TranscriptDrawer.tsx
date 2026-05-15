@@ -13,15 +13,32 @@ interface Props {
 	roomId: string
 }
 
+/*
+ * TranscriptDrawer — recording-FAB + right-side drawer.
+ *
+ * Scriptorium pass:
+ *   · FAB pill: idle reads "Listen"; recording swaps to a live oscilloscope
+ *     drawn from the PCMRecorder's AnalyserNode, plus a "Recording" label.
+ *   · Drawer header: Fraunces small-caps title · mono `mm:ss` timer · stop
+ *     button retreats to a hairline icon button on the right.
+ *   · Body: mono transcript, line numbers in the gutter, speaker tag in small
+ *     caps Fraunces, hairline column separator. Partials use text-faded-ink
+ *     ("ink not yet dry"). Background = repeating ruled-paper hairlines.
+ *   · Collapsed state: Fraunces small-caps vertical label.
+ *   · Errors: crimson on paper, never red-on-red.
+ */
 export function TranscriptDrawer({ wsRef, roomId }: Props) {
 	const [segments, setSegments] = useState<TranscriptSegment[]>([])
 	const [recording, setRecording] = useState(false)
 	const [error, setError] = useState<string | null>(null)
-	// Collapsed drawer becomes a thin 40px strip at the right edge so the user
-	// can reclaim canvas real estate during demos. Mic FAB stays visible regardless.
 	const [isOpen, setIsOpen] = useState(true)
+	const [elapsedSec, setElapsedSec] = useState(0)
 	const stopRef = useRef<(() => Promise<void>) | null>(null)
 	const endRef = useRef<HTMLDivElement>(null)
+	const analyserRef = useRef<AnalyserNode | null>(null)
+	const canvasRef = useRef<HTMLCanvasElement | null>(null)
+	const rafRef = useRef<number | null>(null)
+	const startTsRef = useRef<number | null>(null)
 
 	useEffect(() => {
 		// Auto-scroll to bottom when new segments arrive.
@@ -33,13 +50,90 @@ export function TranscriptDrawer({ wsRef, roomId }: Props) {
 		return () => {
 			stopRef.current?.().catch(() => undefined)
 			stopRef.current = null
+			if (rafRef.current != null) cancelAnimationFrame(rafRef.current)
 		}
 	}, [])
+
+	// ── recording timer ────────────────────────────────────────────────
+	useEffect(() => {
+		if (!recording) return
+		startTsRef.current = Date.now()
+		setElapsedSec(0)
+		const id = window.setInterval(() => {
+			if (startTsRef.current != null) {
+				setElapsedSec(Math.floor((Date.now() - startTsRef.current) / 1000))
+			}
+		}, 500)
+		return () => {
+			window.clearInterval(id)
+			startTsRef.current = null
+		}
+	}, [recording])
+
+	// ── oscilloscope animation ────────────────────────────────────────
+	useEffect(() => {
+		if (!recording || !analyserRef.current || !canvasRef.current) return
+		const analyser = analyserRef.current
+		const canvas = canvasRef.current
+		const ctx = canvas.getContext('2d')
+		if (!ctx) return
+
+		// 128 samples is more than enough for a 28×14 px trace. We use the byte
+		// time-domain endpoint (cheaper than float, zero-allocation per frame).
+		analyser.fftSize = 256
+		const sampleCount = 128
+		const buffer = new Uint8Array(sampleCount)
+
+		// Crisp on hi-DPI — paint at the device pixel ratio, then draw in CSS px.
+		const dpr = window.devicePixelRatio || 1
+		const cssW = canvas.clientWidth || 28
+		const cssH = canvas.clientHeight || 14
+		canvas.width = Math.round(cssW * dpr)
+		canvas.height = Math.round(cssH * dpr)
+		ctx.scale(dpr, dpr)
+
+		const draw = () => {
+			analyser.getByteTimeDomainData(buffer)
+			ctx.clearRect(0, 0, cssW, cssH)
+
+			// Hairline midline — the "rule" on the precision instrument.
+			ctx.strokeStyle = 'rgba(220, 211, 192, 0.6)' // hairline @ 60%
+			ctx.lineWidth = 0.5
+			ctx.beginPath()
+			ctx.moveTo(0, cssH / 2)
+			ctx.lineTo(cssW, cssH / 2)
+			ctx.stroke()
+
+			// Crimson trace.
+			ctx.strokeStyle = '#B82626'
+			ctx.lineWidth = 1.5
+			ctx.lineJoin = 'round'
+			ctx.lineCap = 'round'
+			ctx.beginPath()
+			const step = cssW / (sampleCount - 1)
+			for (let i = 0; i < sampleCount; i++) {
+				// Byte time-domain values run 0..255 centered at 128.
+				const v = (buffer[i] - 128) / 128
+				const x = i * step
+				const y = cssH / 2 + v * (cssH / 2) * 0.9
+				if (i === 0) ctx.moveTo(x, y)
+				else ctx.lineTo(x, y)
+			}
+			ctx.stroke()
+
+			rafRef.current = requestAnimationFrame(draw)
+		}
+		rafRef.current = requestAnimationFrame(draw)
+		return () => {
+			if (rafRef.current != null) cancelAnimationFrame(rafRef.current)
+			rafRef.current = null
+		}
+	}, [recording])
 
 	async function start() {
 		setError(null)
 		try {
-			const { stop } = await startSpeechmaticsStream((seg) => {
+			const handle = await startSpeechmaticsStream((seg) => {
 				setSegments((prev) => {
 					// Replace the trailing partial segment with the new partial or finalize it,
 					// otherwise append. This keeps the live row updating in place.
@@ -56,7 +150,8 @@ export function TranscriptDrawer({ wsRef, roomId }: Props) {
 					)
 				}
 			})
-			stopRef.current = stop
+			stopRef.current = handle.stop
+			analyserRef.current = handle.analyser ?? null
 			setRecording(true)
 		} catch (err) {
 			console.error('[transcript-drawer] failed to start mic stream', err)
@@ -68,6 +163,7 @@ export function TranscriptDrawer({ wsRef, roomId }: Props) {
 	async function stop() {
 		const fn = stopRef.current
 		stopRef.current = null
+		analyserRef.current = null
 		setRecording(false)
 		if (fn) {
 			try {
@@ -84,15 +180,10 @@ export function TranscriptDrawer({ wsRef, roomId }: Props) {
 	const drawerWidth = isOpen ? 384 : 40
 	const fabRight = drawerWidth + 16
 
+	// Reset line numbering each session by collapsing speakers per line.
 	return (
 		<>
-			{/*
-				Floating mic FAB — moved from top-center to top-right in the Phase-3
-				polish pass so it stops obscuring canvas content. It sits just to the
-				left of the transcript drawer (offset by drawer width + 16px gutter)
-				and follows the drawer when it collapses. Pinned to z-[500] which
-				is above tldraw's overlay layer (~300).
-			*/}
+			{/* ── Mic FAB (idle: "Listen" · recording: oscilloscope) ────── */}
 			<button
 				type="button"
 				onClick={recording ? stop : start}
@@ -100,89 +191,136 @@ export function TranscriptDrawer({ wsRef, roomId }: Props) {
 				style={{ right: fabRight, transition: 'right 300ms ease' }}
 				className={[
 					'fixed top-4 z-[500]',
-					'px-5 py-2.5 rounded-full text-sm font-semibold shadow-lg',
-					'transition-colors flex items-center gap-2',
+					'px-4 py-2 rounded-sm border',
+					'flex items-center gap-2.5',
+					'font-display text-[11px] uppercase tracking-[0.18em]',
+					'transition-colors',
 					recording
-						? 'bg-red-600 text-white hover:bg-red-700 ring-2 ring-red-300 animate-pulse'
-						: 'bg-zinc-900 text-white hover:bg-zinc-700',
+						? 'bg-paper border-crimson text-crimson'
+						: 'bg-ink border-ink text-paper hover:bg-[#2a2723]',
 				].join(' ')}
 			>
-				<span
-					className={[
-						'inline-block w-2.5 h-2.5 rounded-full',
-						recording ? 'bg-white' : 'bg-red-500',
-					].join(' ')}
-				/>
-				{recording ? 'Stop recording' : 'Start mic'}
+				{recording ? (
+					<>
+						<canvas
+							ref={canvasRef}
+							width={28}
+							height={14}
+							style={{ width: 28, height: 14, display: 'block' }}
+							aria-hidden="true"
+						/>
+						<span>Recording</span>
+					</>
+				) : (
+					<>
+						<span
+							className="w-1.5 h-1.5 bg-crimson rounded-full"
+							aria-hidden="true"
+						/>
+						<span>Listen</span>
+					</>
+				)}
 			</button>
 
 			<div
 				style={{ width: drawerWidth, transition: 'width 300ms ease' }}
-				className="fixed right-0 top-0 h-screen bg-white/95 backdrop-blur border-l border-zinc-200 z-[400] flex flex-col overflow-hidden"
+				className="fixed right-0 top-0 h-screen bg-paper/95 backdrop-blur border-l border-hairline z-[400] flex flex-col overflow-hidden"
 			>
 				{isOpen ? (
 					<>
-						<div className="p-3 border-b border-zinc-200 flex items-center justify-between gap-2">
+						{/* Header: small caps title · mono timer · collapse / stop icons */}
+						<div className="px-4 pt-4 pb-3 border-b border-hairline flex items-center gap-3">
 							<button
 								type="button"
 								onClick={() => setIsOpen(false)}
 								aria-label="Collapse transcript"
-								className="px-2 py-1 rounded text-zinc-500 hover:bg-zinc-100 text-sm"
+								className="text-faded-ink hover:text-ink text-sm leading-none"
 								title="Collapse"
 							>
 								›
 							</button>
-							<span className="font-semibold text-sm flex-1">Transcript</span>
-							<button
-								type="button"
-								onClick={recording ? stop : start}
-								className="px-3 py-1 rounded text-sm bg-zinc-900 text-white hover:bg-zinc-700"
-							>
-								{recording ? 'Stop' : 'Start mic'}
-							</button>
+							<span className="font-display text-[11px] uppercase tracking-[0.22em] text-ink">
+								Transcript
+							</span>
+							<span className="ml-auto font-mono text-[11px] text-faded-ink tabular-nums">
+								{formatElapsed(elapsedSec)}
+							</span>
+							{recording && (
+								<button
+									type="button"
+									onClick={stop}
+									aria-label="Stop recording"
+									title="Stop"
+									className="w-5 h-5 grid place-items-center border border-crimson text-crimson hover:bg-crimson hover:text-paper transition-colors"
+								>
+									<span
+										className="w-2 h-2 bg-crimson"
+										style={{ display: 'block' }}
+										aria-hidden="true"
+									/>
+								</button>
+							)}
 						</div>
 						{error ? (
-							<div className="px-3 py-2 text-xs text-red-700 bg-red-50 border-b border-red-100">
+							<div className="px-4 py-2 text-[11px] font-mono text-crimson bg-paper border-b border-crimson">
 								{error}
 							</div>
 						) : null}
-						<div className="flex-1 overflow-y-auto p-3 space-y-1 text-sm">
+						{/* Ruled-paper body: hairline rule every 28 px. */}
+						<div
+							className="flex-1 overflow-y-auto py-3"
+							style={{
+								backgroundImage:
+									'repeating-linear-gradient(to bottom, transparent 0, transparent 27px, rgba(220,211,192,0.45) 27px, rgba(220,211,192,0.45) 28px)',
+							}}
+						>
 							{segments.length === 0 ? (
-								<div className="text-zinc-400 text-xs italic">
-									Click "Start mic" to begin transcribing.
+								<div className="px-4 text-faded-ink text-[11px] font-mono italic">
+									Click "Listen" to begin transcribing.
 								</div>
 							) : null}
-							{segments.map((s, i) => (
-								<div
-									// biome-ignore lint/suspicious/noArrayIndexKey: append-only list, index is stable
-									key={i}
-									className={s.isFinal ? '' : 'opacity-60'}
-								>
-									<span className="font-mono text-xs text-zinc-500 mr-2">
-										[{s.speaker}]
-									</span>
-									{s.text}
-								</div>
-							))}
+							<ol className="m-0 p-0 list-none">
+								{segments.map((s, i) => (
+									<li
+										// biome-ignore lint/suspicious/noArrayIndexKey: append-only list, index is stable
+										key={i}
+										className="grid grid-cols-[28px_28px_1fr] items-baseline px-3"
+										style={{ minHeight: 28 }}
+									>
+										<span className="font-mono text-[10px] text-faded-ink text-right pr-2 leading-[28px] tabular-nums">
+											{String(i + 1).padStart(2, '0')}
+										</span>
+										<span className="font-display text-[11px] uppercase tracking-[0.12em] text-ink border-r border-hairline pr-2 leading-[28px]">
+											{s.speaker}
+										</span>
+										<span
+											className={`font-mono text-[12px] pl-2 leading-[28px] ${
+												s.isFinal ? 'text-ink' : 'text-faded-ink'
+											}`}
+										>
+											{s.text}
+										</span>
+									</li>
+								))}
+							</ol>
 							<div ref={endRef} />
 						</div>
 					</>
 				) : (
-					// Collapsed sliver: 40px wide with a vertical "Transcript" label
-					// and an expand button stacked at the top. Clicking anywhere on
-					// the strip expands the drawer.
+					// Collapsed sliver: 40px wide with a vertical small-caps Fraunces
+					// "Transcript" label. Clicking expands the drawer.
 					<button
 						type="button"
 						onClick={() => setIsOpen(true)}
 						aria-label="Expand transcript"
-						className="w-full h-full flex flex-col items-center gap-3 py-3 hover:bg-zinc-50 transition-colors"
+						className="w-full h-full flex flex-col items-center gap-4 py-4 hover:bg-paper/80 transition-colors"
 						title="Expand transcript"
 					>
-						<span className="text-zinc-500 text-sm" aria-hidden="true">
+						<span className="text-faded-ink text-sm" aria-hidden="true">
 							‹
 						</span>
 						<span
-							className="text-xs font-semibold tracking-wider text-zinc-600 uppercase"
+							className="font-display text-[11px] uppercase tracking-[0.32em] text-ink"
 							style={{ writingMode: 'vertical-rl' }}
 						>
 							Transcript
@@ -192,4 +330,16 @@ export function TranscriptDrawer({ wsRef, roomId }: Props) {
 			</div>
 		</>
 	)
+}
+
+/**
+ * `mm:ss` for short sessions, `hh:mm:ss` once we cross an hour. Pads the way
+ * a stopwatch does so the digits don't jitter as the clock advances.
+ */
+function formatElapsed(totalSec: number): string {
+	const s = totalSec % 60
+	const m = Math.floor(totalSec / 60) % 60
+	const h = Math.floor(totalSec / 3600)
+	const pad = (n: number) => String(n).padStart(2, '0')
+	return h > 0 ? `${pad(h)}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`
 }
