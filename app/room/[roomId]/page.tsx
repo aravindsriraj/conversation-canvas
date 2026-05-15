@@ -1,4 +1,4 @@
-import { CanvasLoader } from './canvas-loader'
+import { RoomShell } from './RoomShell'
 
 export default async function RoomPage({
 	params,
@@ -6,5 +6,5 @@ export default async function RoomPage({
 	params: Promise<{ roomId: string }>
 }) {
 	const { roomId } = await params
-	return <CanvasLoader roomId={roomId} />
+	return <RoomShell roomId={roomId} />
 }

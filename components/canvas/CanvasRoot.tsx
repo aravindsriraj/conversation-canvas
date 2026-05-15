@@ -27,9 +27,10 @@ type SpeakerRegistry = Record<string, { displayName: string; color: string }>
 
 interface CanvasRootProps {
 	roomId: string
+	enrollment: { name: string; color: string; slot: 'S0' | 'S1' }
 }
 
-export function CanvasRoot({ roomId }: CanvasRootProps) {
+export function CanvasRoot({ roomId, enrollment }: CanvasRootProps) {
 	const editorRef = useRef<Editor | null>(null)
 	const wsRef = useRef<WebSocket | null>(null)
 	const [speakers, setSpeakers] = useState<SpeakerRegistry>({})
@@ -53,6 +54,17 @@ export function CanvasRoot({ roomId }: CanvasRootProps) {
 
 		ws.onopen = () => {
 			ws.send(JSON.stringify({ kind: 'join', roomId }))
+			ws.send(
+				JSON.stringify({
+					kind: 'enroll',
+					roomId,
+					payload: {
+						speakerId: enrollment.slot,
+						displayName: enrollment.name,
+						color: enrollment.color,
+					},
+				}),
+			)
 		}
 		ws.onmessage = (evt) => {
 			let msg: unknown
@@ -88,7 +100,10 @@ export function CanvasRoot({ roomId }: CanvasRootProps) {
 			ws.close()
 			wsRef.current = null
 		}
-	}, [roomId])
+		// Enrollment is set once when the user joins the room and never mutates
+		// for the lifetime of this component (RoomShell unmounts/remounts on a
+		// fresh join), so including it here does not cause reconnect storms.
+	}, [roomId, enrollment])
 
 	return (
 		<div style={{ position: 'fixed', inset: 0 }}>
