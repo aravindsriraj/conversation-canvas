@@ -16,6 +16,10 @@ export class Room {
 	buffer: TranscriptBuffer
 	canvasShapes: Map<string, { type: string; summary: string }> = new Map()
 	speakers: Map<string, { displayName: string; color: string }> = new Map()
+	// Single-user mode: the primary identity for this room. Every Speechmatics
+	// speaker label (S0/S1/S2/…) that shows up gets mapped to this identity by
+	// the orchestrator. Set via an `enroll` WS message with `primary: true`.
+	primaryUser: { displayName: string; color: string } | null = null
 	actionHistory: Action[] = []
 	onTick: () => Promise<void>
 

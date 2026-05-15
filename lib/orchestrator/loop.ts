@@ -41,12 +41,20 @@ export async function runOrchestratorTick(room: Room): Promise<Action[]> {
 		summary: v.summary,
 	}))
 
-	// Auto-register any speakers that show up in the transcript but haven't
-	// been enrolled yet (Phase 3 task 3.4 will add a real enrollment UI). Without
-	// this, the prompt presents an empty SPEAKERS registry and Gemini refuses
-	// to emit cards because rule 10 says "use registered speaker IDs only."
+	// Single-user mode: every Speechmatics speaker label that shows up in this
+	// tick's transcript is mapped to the enrolled primary user. Speechmatics'
+	// diarization sometimes flickers between labels (S0, S1, S2…) even for one
+	// voice; we coalesce them all to the same identity so cards consistently
+	// show "Alice" instead of switching between "Speaker S0" / "Speaker S1".
+	//
+	// Falls back to a generic "Speaker S<n>" placeholder if no primary user
+	// has enrolled yet (e.g. if someone races the form).
+	const primary = room.primaryUser
 	for (const seg of transcript) {
-		if (seg.speaker && !room.speakers.has(seg.speaker)) {
+		if (!seg.speaker || room.speakers.has(seg.speaker)) continue
+		if (primary) {
+			room.recordSpeaker(seg.speaker, primary.displayName, primary.color)
+		} else {
 			room.recordSpeaker(seg.speaker, `Speaker ${seg.speaker}`, '#71717a')
 		}
 	}

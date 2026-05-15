@@ -27,7 +27,7 @@ type SpeakerRegistry = Record<string, { displayName: string; color: string }>
 
 interface CanvasRootProps {
 	roomId: string
-	enrollment: { name: string; color: string; slot: 'S0' | 'S1' }
+	enrollment: { name: string; color: string }
 }
 
 export function CanvasRoot({ roomId, enrollment }: CanvasRootProps) {
@@ -54,12 +54,16 @@ export function CanvasRoot({ roomId, enrollment }: CanvasRootProps) {
 
 		ws.onopen = () => {
 			ws.send(JSON.stringify({ kind: 'join', roomId }))
+			// Single-user mode: enroll the user as the "primary identity" for this
+			// room. Whatever speaker label Speechmatics emits (S0, S1, S2 — diarization
+			// flickers even with one voice), the server will map all of them to this
+			// user's name+color.
 			ws.send(
 				JSON.stringify({
 					kind: 'enroll',
 					roomId,
 					payload: {
-						speakerId: enrollment.slot,
+						primary: true,
 						displayName: enrollment.name,
 						color: enrollment.color,
 					},

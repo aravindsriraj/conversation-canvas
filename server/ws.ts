@@ -47,7 +47,21 @@ export function buildWsServer(registry: RoomRegistry) {
 			}
 
 			if (msg.kind === 'enroll') {
-				const { speakerId, displayName, color } = msg.payload ?? {}
+				const { primary, speakerId, displayName, color } = msg.payload ?? {}
+				if (typeof displayName !== 'string' || typeof color !== 'string') return
+
+				if (primary === true) {
+					// Single-user mode: this user IS the meeting; any Speechmatics
+					// label that shows up will be mapped to them by the orchestrator.
+					room.primaryUser = { displayName, color }
+					console.log(`[ws] enroll PRIMARY="${displayName}" in room=${msg.roomId}`)
+					client.displayName = displayName
+					client.color = color
+					room.broadcast({ kind: 'speakers', registry: Object.fromEntries(room.speakers) })
+					return
+				}
+
+				// Legacy multi-user path: explicit speaker slot.
 				if (typeof speakerId !== 'string') return
 				client.speakerId = speakerId
 				client.displayName = displayName

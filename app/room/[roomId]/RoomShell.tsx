@@ -17,7 +17,6 @@ const CanvasRoot = dynamic(
 interface Enrollment {
 	name: string
 	color: string
-	slot: 'S0' | 'S1'
 }
 
 function storageKey(roomId: string) {
@@ -38,8 +37,7 @@ export function RoomShell({ roomId }: { roomId: string }) {
 				if (
 					parsed &&
 					typeof parsed.name === 'string' &&
-					typeof parsed.color === 'string' &&
-					(parsed.slot === 'S0' || parsed.slot === 'S1')
+					typeof parsed.color === 'string'
 				) {
 					setEnrollment(parsed)
 				}
@@ -50,8 +48,8 @@ export function RoomShell({ roomId }: { roomId: string }) {
 		setHydrated(true)
 	}, [roomId])
 
-	const handleJoin = (name: string, color: string, slot: 'S0' | 'S1') => {
-		const next: Enrollment = { name, color, slot }
+	const handleJoin = (name: string, color: string) => {
+		const next: Enrollment = { name, color }
 		try {
 			localStorage.setItem(storageKey(roomId), JSON.stringify(next))
 		} catch {

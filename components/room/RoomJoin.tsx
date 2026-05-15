@@ -5,24 +5,26 @@ import { useState } from 'react'
 const COLORS = ['#6366f1', '#ec4899', '#10b981', '#f59e0b', '#0ea5e9', '#a855f7']
 
 interface Props {
-	onJoin: (name: string, color: string, speakerSlot: 'S0' | 'S1') => void
+	onJoin: (name: string, color: string) => void
 }
 
 export function RoomJoin({ onJoin }: Props) {
 	const [name, setName] = useState('')
 	const [color, setColor] = useState(COLORS[0])
-	const [slot, setSlot] = useState<'S0' | 'S1'>('S0')
 
 	return (
 		<div className="fixed inset-0 grid place-items-center bg-gradient-to-br from-zinc-100 to-zinc-200">
 			<form
 				onSubmit={(e) => {
 					e.preventDefault()
-					if (name) onJoin(name, color, slot)
+					if (name) onJoin(name, color)
 				}}
 				className="w-96 bg-white rounded-xl shadow-lg p-6 flex flex-col gap-4 border border-zinc-200"
 			>
 				<h2 className="text-lg font-semibold">Join the canvas</h2>
+				<p className="text-xs text-zinc-500 -mt-2">
+					Speak into your mic, watch the canvas listen and structure the meeting.
+				</p>
 				<label className="text-sm flex flex-col gap-1">
 					Your display name
 					<input
@@ -50,23 +52,12 @@ export function RoomJoin({ onJoin }: Props) {
 						))}
 					</div>
 				</div>
-				<label className="text-sm flex flex-col gap-1">
-					Speaker slot (for diarization mapping)
-					<select
-						value={slot}
-						onChange={(e) => setSlot(e.target.value as 'S0' | 'S1')}
-						className="border border-zinc-300 rounded px-2 py-1.5 text-sm"
-					>
-						<option value="S0">Speaker 1 (S0)</option>
-						<option value="S1">Speaker 2 (S1)</option>
-					</select>
-				</label>
 				<button
 					type="submit"
 					disabled={!name}
 					className="bg-zinc-900 text-white rounded py-2 text-sm disabled:opacity-50"
 				>
-					Join
+					Start meeting
 				</button>
 			</form>
 		</div>
