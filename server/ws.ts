@@ -22,15 +22,18 @@ export function buildWsServer(registry: RoomRegistry) {
 	wss.on('connection', (socket: WebSocket, _req: IncomingMessage) => {
 		const client: RoomClient = { socket }
 		let currentRoomId: string | null = null
+		console.log('[ws] client connected')
 
 		socket.on('message', (raw) => {
 			let msg: IncomingMsg
 			try {
 				msg = JSON.parse(raw.toString())
 			} catch {
+				console.warn('[ws] malformed JSON')
 				return
 			}
 			if (!msg || typeof msg.roomId !== 'string' || typeof msg.kind !== 'string') {
+				console.warn('[ws] bad message shape', { kind: msg?.kind, roomId: msg?.roomId })
 				return
 			}
 			const room = registry.getOrCreate(msg.roomId)
@@ -38,7 +41,7 @@ export function buildWsServer(registry: RoomRegistry) {
 
 			if (msg.kind === 'join') {
 				room.addClient(client)
-				// Replay action history to the new client so it catches up
+				console.log(`[ws] join room=${msg.roomId} (clients=${room.clients.size})`)
 				socket.send(JSON.stringify({ kind: 'history', actions: room.actionHistory }))
 				return
 			}
@@ -50,21 +53,33 @@ export function buildWsServer(registry: RoomRegistry) {
 				client.displayName = displayName
 				client.color = color
 				room.recordSpeaker(speakerId, displayName, color)
+				console.log(`[ws] enroll ${speakerId}="${displayName}" in room=${msg.roomId}`)
 				room.broadcast({ kind: 'speakers', registry: Object.fromEntries(room.speakers) })
 				return
 			}
 
 			if (msg.kind === 'transcript') {
-				room.addTranscript(msg.payload)
+				const p = msg.payload ?? {}
+				console.log(
+					`[ws] transcript room=${msg.roomId} [${p.speaker}] "${(p.text ?? '').slice(0, 80)}" final=${!!p.isFinal}`,
+				)
+				room.addTranscript(p)
 				return
 			}
+
+			console.warn(`[ws] unknown kind=${msg.kind}`)
 		})
 
 		socket.on('close', () => {
+			console.log('[ws] client disconnected')
 			if (currentRoomId) {
 				const room = registry.getOrCreate(currentRoomId)
 				room.removeClient(client)
 			}
+		})
+
+		socket.on('error', (err) => {
+			console.error('[ws] socket error:', err)
 		})
 	})
 

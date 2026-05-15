@@ -25,20 +25,47 @@ const MODEL_ID = 'gemini-3-flash-preview'
  *    loop never throws.
  */
 export async function runOrchestratorTick(room: Room): Promise<Action[]> {
-	const transcript = room.buffer.window()
-	if (transcript.length === 0) return []
+	const rawTranscript = room.buffer.window()
+	if (rawTranscript.length === 0) return []
+
+	// Speechmatics finalizes in small phrase chunks (e.g. "I think" / "we should"
+	// / "target enterprise" / "customers in Q3" / "."). Sent one-per-line to
+	// Gemini, the meaning fragments. Coalesce consecutive same-speaker segments
+	// that are < 2.5s apart into a single utterance line. The coalesced version
+	// is what we hand to Gemini; the raw buffer stays for the per-segment forward.
+	const transcript = coalesceUtterances(rawTranscript, 2500)
 
 	const canvas = Array.from(room.canvasShapes.entries()).map(([id, v]) => ({
 		id,
 		type: v.type,
 		summary: v.summary,
 	}))
+
+	// Auto-register any speakers that show up in the transcript but haven't
+	// been enrolled yet (Phase 3 task 3.4 will add a real enrollment UI). Without
+	// this, the prompt presents an empty SPEAKERS registry and Gemini refuses
+	// to emit cards because rule 10 says "use registered speaker IDs only."
+	for (const seg of transcript) {
+		if (seg.speaker && !room.speakers.has(seg.speaker)) {
+			room.recordSpeaker(seg.speaker, `Speaker ${seg.speaker}`, '#71717a')
+		}
+	}
 	const speakers = Array.from(room.speakers.entries()).map(([id, v]) => ({
 		id,
 		displayName: v.displayName,
 	}))
 
 	const userPrompt = buildUserPrompt({ transcript, canvas, speakers })
+
+	// Verbose-ish per-tick logging during demo bring-up. Truncated to stay
+	// readable. If this gets noisy in production, gate behind DEBUG_ORCH=1.
+	console.log(
+		`[orchestrator] tick start: ${transcript.length} segs, ${speakers.length} speakers, ${canvas.length} on canvas`,
+	)
+	console.log('[orchestrator] transcript window:')
+	for (const seg of transcript) {
+		console.log(`  [${seg.speaker}] ${seg.text}`)
+	}
 
 	const startedAt = Date.now()
 	try {
@@ -50,17 +77,18 @@ export async function runOrchestratorTick(room: Room): Promise<Action[]> {
 			temperature: 0.2,
 		})
 
-		const cleaned = sanitizeRawObject(raw)
-		const parsed = ActionStreamSchema.safeParse(cleaned)
 		const ms = Date.now() - startedAt
+		const rawPreview = JSON.stringify(raw).slice(0, 1200)
+		console.log(`[orchestrator] gemini raw (${ms}ms):`, rawPreview)
+
+		const cleaned = sanitizeRawObject(raw)
+		injectMissingTimestamps(cleaned, Date.now())
+		const parsed = ActionStreamSchema.safeParse(cleaned)
 
 		if (!parsed.success) {
 			console.error(
-				`[orchestrator] tick: schema validation failed after ${ms}ms`,
-				{
-					issues: parsed.error.issues.slice(0, 8),
-					rawPreview: JSON.stringify(raw).slice(0, 400),
-				},
+				`[orchestrator] schema validation failed after ${ms}ms`,
+				{ issues: parsed.error.issues.slice(0, 8) },
 			)
 			return []
 		}
@@ -68,6 +96,9 @@ export async function runOrchestratorTick(room: Room): Promise<Action[]> {
 		console.log(
 			`[orchestrator] tick: ${transcript.length} transcript segs -> ${parsed.data.actions.length} actions (${ms}ms)`,
 		)
+		for (const a of parsed.data.actions) {
+			console.log(`  + ${a.type}${'id' in a ? ` ${a.id}` : ''}`)
+		}
 		return parsed.data.actions
 	} catch (err) {
 		const ms = Date.now() - startedAt
@@ -76,7 +107,7 @@ export async function runOrchestratorTick(room: Room): Promise<Action[]> {
 				`[orchestrator] tick failed: model returned unparseable object after ${ms}ms`,
 				{
 					cause: err.cause,
-					textPreview: typeof err.text === 'string' ? err.text.slice(0, 400) : undefined,
+					textPreview: typeof err.text === 'string' ? err.text.slice(0, 800) : undefined,
 					finishReason: err.finishReason,
 				},
 			)
@@ -112,6 +143,51 @@ function sanitizeRawObject(value: unknown): unknown {
 			continue
 		}
 		out[k] = sanitizeRawObject(v)
+	}
+	return out
+}
+
+/**
+ * Gemini reliably omits required scalar fields like `ts` from action variants
+ * (we ask for a discriminated union; it returns minimal objects). Inject a
+ * server-side timestamp for action types whose schema requires one. The
+ * server's wall-clock is good enough for ordering and demo display.
+ */
+function injectMissingTimestamps(obj: unknown, now: number): void {
+	if (!obj || typeof obj !== 'object') return
+	const actions = (obj as { actions?: unknown }).actions
+	if (!Array.isArray(actions)) return
+	for (const action of actions) {
+		if (!action || typeof action !== 'object') continue
+		const a = action as Record<string, unknown>
+		if (a.type === 'create_proposal_card' && typeof a.ts !== 'number') {
+			a.ts = now
+		}
+	}
+}
+
+/**
+ * Coalesce consecutive same-speaker segments within `gapMs` into one logical
+ * utterance line. Punctuation tokens (`,` `.` `?` `!` `;` `:`) are merged
+ * without a leading space; word tokens get a single space.
+ */
+function coalesceUtterances<T extends { speaker: string; text: string; isFinal: boolean; ts: number }>(
+	segs: T[],
+	gapMs: number,
+): T[] {
+	if (segs.length <= 1) return segs
+	const out: T[] = []
+	for (const seg of segs) {
+		const prev = out[out.length - 1]
+		const gap = prev ? seg.ts - prev.ts : Number.POSITIVE_INFINITY
+		const sameSpeaker = prev && prev.speaker === seg.speaker
+		if (prev && sameSpeaker && gap <= gapMs) {
+			const isPunct = /^[.,!?;:]+$/.test(seg.text.trim())
+			prev.text = isPunct ? prev.text + seg.text : `${prev.text} ${seg.text}`
+			prev.ts = seg.ts
+		} else {
+			out.push({ ...seg })
+		}
 	}
 	return out
 }

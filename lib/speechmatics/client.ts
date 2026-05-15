@@ -75,36 +75,84 @@ export async function startSpeechmaticsStream(
 		const data = evt?.data
 		if (!data) return
 		messageCount += 1
-		if (messageCount <= 5 || data.message === 'Error') {
-			console.log(`${LOG} recv #${messageCount}:`, data.message, data.type ?? '')
+		// Log ALL messages except AudioAdded (which is acked-per-chunk and noisy).
+		// In particular ALWAYS log AddPartialTranscript / AddTranscript so we can
+		// see exactly what the server thinks we said (and confirm they arrive at all).
+		if (data.message !== 'AudioAdded') {
+			console.log(`${LOG} recv #${messageCount}:`, data.message, data)
 		}
 		if (data.message === 'Error') {
 			console.error(`${LOG} server Error:`, data)
 		}
 		if (data.message === 'AddPartialTranscript' || data.message === 'AddTranscript') {
 			const isFinal = data.message === 'AddTranscript'
-			for (const r of data.results ?? []) {
-				const alt = r.alternatives?.[0]
+			// Format 2.9 (current Speechmatics protocol) does NOT include a top-level
+			// `transcript` string — we have to assemble the sentence from
+			// `results[].alternatives[0].content`, mirroring the official Speechmatics
+			// NextJS example's transcriptReducer. Punctuation results get no leading
+			// space; word results get a single leading space (except the first token).
+			const results: any[] = Array.isArray(data.results) ? data.results : []
+			if (results.length === 0) return // no new content, skip
+
+			let text = ''
+			let firstSpeaker: string | undefined
+			for (const r of results) {
+				const alt = r?.alternatives?.[0]
 				if (!alt?.content) continue
-				onTranscript({
-					speaker: alt.speaker ?? 'UU',
-					text: alt.content,
-					isFinal,
-					ts: Date.now(),
-				})
+				if (!firstSpeaker && typeof alt.speaker === 'string') {
+					firstSpeaker = alt.speaker
+				}
+				const isPunct = r.type === 'punctuation'
+				text += isPunct || text.length === 0 ? alt.content : ` ${alt.content}`
 			}
+
+			text = text.trim()
+			if (!text) return
+
+			onTranscript({
+				speaker: firstSpeaker ?? 'UU',
+				text,
+				isFinal,
+				ts: Date.now(),
+			})
 		}
 	})
 
 	// 3. PCM frames from the worklet → Speechmatics socket. The worklet emits
-	//    `audio` events with Float32Array payloads (32-bit float PCM). We forward
-	//    each chunk verbatim; `sendAudio` accepts BufferSource on the browser side.
+	//    Float32Array payloads (32-bit float PCM). Per the Speechmatics official
+	//    Next.js example, we pass the Float32Array DIRECTLY — not its underlying
+	//    .buffer — so the bytes sent match the view's range exactly and don't
+	//    accidentally include adjacent slots from a pooled ArrayBuffer.
 	recorder.addEventListener('audio', (evt) => {
 		try {
-			client.sendAudio(evt.data.buffer.slice(0))
+			// Copy into a tight, zero-offset ArrayBuffer. The worklet's Float32Array
+			// may be a view into a larger pooled buffer (non-zero byteOffset, or
+			// buffer.byteLength > byteLength). Sending the raw view is supposed to
+			// only transmit `byteLength` bytes, but some WebSocket implementations
+			// send the whole buffer. A tight copy removes all ambiguity.
+			const tight = new ArrayBuffer(evt.data.byteLength)
+			new Float32Array(tight).set(evt.data)
+			client.sendAudio(tight)
 			audioFramesSent += 1
 			if (audioFramesSent === 1) {
-				console.log(`${LOG} first audio frame sent (${evt.data.length} samples)`)
+				console.log(
+					`${LOG} first audio frame sent (${evt.data.length} samples, ${evt.data.byteLength} bytes)`,
+				)
+			} else if (audioFramesSent % 200 === 0) {
+				// Heartbeat every ~5s at 128 samples × 16kHz. Also report RMS / peak
+				// so we can spot a silent or near-silent feed (which is what makes
+				// Speechmatics return no transcripts).
+				let peak = 0
+				let sumSq = 0
+				for (let i = 0; i < evt.data.length; i++) {
+					const v = Math.abs(evt.data[i])
+					if (v > peak) peak = v
+					sumSq += evt.data[i] * evt.data[i]
+				}
+				const rms = Math.sqrt(sumSq / evt.data.length)
+				console.log(
+					`${LOG} ${audioFramesSent} frames sent  peak=${peak.toFixed(3)}  rms=${rms.toFixed(4)}  ${peak < 0.005 ? '⚠️ SILENT' : ''}`,
+				)
 			}
 		} catch (err) {
 			if (audioFramesSent === 0) {
@@ -133,12 +181,18 @@ export async function startSpeechmaticsStream(
 	})
 	console.log(`${LOG} RecognitionStarted — starting recorder`)
 
-	// 5. Start the official AudioWorklet recorder. It internally handles
-	//    permission prompt, AudioWorklet registration, and PCM extraction.
+	// 5. Start the official AudioWorklet recorder. PCMRecorder's defaults are
+	//    { noiseSuppression: true, echoCancellation: true, autoGainControl: true }
+	//    but `echoCancellation: true` is hostile to ASR when there's no far-end
+	//    audio: Chrome's EC will aggressively flag your own voice as echo and
+	//    near-silence the mic. Disabling it is critical.
 	await recorder.startRecording({
 		audioContext,
-		// Speechmatics' defaults: noiseSuppression, echoCancellation, autoGainControl all on
-		// (optimal for ASR). Override here only if we hit problems.
+		recordingOptions: {
+			echoCancellation: false,
+			noiseSuppression: true,
+			autoGainControl: true,
+		},
 	})
 
 	let stopped = false
