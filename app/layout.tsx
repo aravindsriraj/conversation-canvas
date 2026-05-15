@@ -68,7 +68,9 @@ export default function RootLayout({
 			className={`h-full ${fraunces.variable} ${plex.variable} ${jetbrains.variable}`}
 		>
 			<body className="min-h-full flex flex-col bg-paper text-ink font-sans antialiased">
-				<ClerkProvider appearance={clerkAppearance}>{children}</ClerkProvider>
+				<ClerkProvider appearance={clerkAppearance} afterSignOutUrl="/">
+					{children}
+				</ClerkProvider>
 			</body>
 		</html>
 	)

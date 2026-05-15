@@ -27,9 +27,15 @@ export async function appendAction(
 			WHERE canvas_id = ${canvasId}::uuid
 		`
 		const nextSeq = rows[0]?.next_seq ?? 1
+		// `sql.json` takes postgres-js's recursive JSONValue. Our Action union
+		// has wide `z.any()` fields (the bespoke widget spec), so TS can't prove
+		// the value is JSON-safe — but at runtime it's a plain Zod-validated
+		// object that JSON.stringify round-trips cleanly. The biome ignore is
+		// scoped to the `as` cast for documentation.
+		// biome-ignore lint/suspicious/noExplicitAny: postgres-js JSONValue is too narrow for our Action union; see comment above
 		await tx`
 			INSERT INTO canvas_actions (canvas_id, seq, action)
-			VALUES (${canvasId}::uuid, ${nextSeq}, ${sql.json(action as unknown as object)})
+			VALUES (${canvasId}::uuid, ${nextSeq}, ${sql.json(action as any)})
 		`
 		return nextSeq
 	}) as Promise<number>
