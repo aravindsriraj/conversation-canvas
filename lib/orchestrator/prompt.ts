@@ -129,6 +129,19 @@ OUTPUT (note: TWO cards — a decision AND a separate commitment; the decision c
     "action": "Own enterprise outreach", "deadline": "next Friday",
     "layout": { "kind": "below", "of": "d1" } }
 ] }
+
+INPUT TRANSCRIPT (canvas has b1: BlockerCard "Legal review incomplete"):
+[S0] What's our realistic timeline if legal clears next week?
+
+OUTPUT (a genuine open question — interrogative, no clear answer in the transcript — emit a question_card):
+{ "actions": [
+  { "type": "create_question_card", "id": "q1", "askedBySpeakerId": "S0",
+    "content": "Realistic timeline if legal clears next week?",
+    "layout": { "kind": "right_of", "of": "b1" } }
+] }
+
+ADDITIONAL GUIDANCE ON QUESTIONS:
+Emit \`create_question_card\` for any open question that surfaces during the meeting: things starting with "What's...", "How do we...", "When can...", "Should we...", or any sentence ending with "?" that doesn't have an immediate answer in the same utterance. Place it near the topic it relates to (\`right_of\` or \`below\` the most relevant card). Rhetorical questions ("Right?", "Make sense?") do NOT count — skip them.
 `
 
 export function buildUserPrompt(args: {

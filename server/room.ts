@@ -62,17 +62,20 @@ export class Room {
 }
 
 function summarizeAction(a: Action): string {
+	// Summary length is intentionally generous (~200 chars) — Gemini needs the
+	// full content visible in the canvas snapshot to decide whether an existing
+	// card already covers a new utterance (prevents duplicate decisions).
 	switch (a.type) {
 		case 'create_proposal_card':
-			return `proposal: "${a.content.slice(0, 60)}"`
+			return `proposal: "${a.content.slice(0, 200)}"`
 		case 'create_decision_card':
-			return `decision: "${a.content.slice(0, 60)}"`
+			return `decision: "${a.content.slice(0, 200)}"`
 		case 'create_commitment_card':
-			return `commit: ${a.ownerSpeakerId} "${a.action.slice(0, 50)}"`
+			return `commit: ${a.ownerSpeakerId} "${a.action.slice(0, 200)}"`
 		case 'create_blocker_card':
-			return `blocker: "${a.content.slice(0, 60)}"`
+			return `blocker: "${a.content.slice(0, 200)}"`
 		case 'create_question_card':
-			return `question: "${a.content.slice(0, 60)}"`
+			return `question: "${a.content.slice(0, 200)}"`
 		case 'create_priority_matrix':
 			return `matrix: ${a.items.length} items`
 		case 'create_budget_allocator':
