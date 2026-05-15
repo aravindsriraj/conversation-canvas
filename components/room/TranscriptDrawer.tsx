@@ -6,16 +6,19 @@ import {
 	type TranscriptSegment,
 } from '@/lib/speechmatics/client'
 
-export function TranscriptDrawer() {
+interface Props {
+	// React 19's `RefObject<T | null>` is the canonical writable ref type now —
+	// `MutableRefObject` was unified into `RefObject` in the new @types/react.
+	wsRef: React.RefObject<WebSocket | null>
+	roomId: string
+}
+
+export function TranscriptDrawer({ wsRef, roomId }: Props) {
 	const [segments, setSegments] = useState<TranscriptSegment[]>([])
 	const [recording, setRecording] = useState(false)
 	const [error, setError] = useState<string | null>(null)
 	const stopRef = useRef<(() => Promise<void>) | null>(null)
 	const endRef = useRef<HTMLDivElement>(null)
-
-	useEffect(() => {
-		endRef.current?.scrollIntoView({ behavior: 'smooth' })
-	}, [])
 
 	useEffect(() => {
 		// Auto-scroll to bottom when new segments arrive.
@@ -42,6 +45,13 @@ export function TranscriptDrawer() {
 					}
 					return [...prev, seg]
 				})
+				// Forward finals to the server so the orchestrator can buffer them.
+				// readyState 1 === OPEN; silently skip if the WS hasn't connected yet.
+				if (seg.isFinal && wsRef.current?.readyState === 1) {
+					wsRef.current.send(
+						JSON.stringify({ kind: 'transcript', roomId, payload: seg }),
+					)
+				}
 			})
 			stopRef.current = stop
 			setRecording(true)
