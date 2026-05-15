@@ -295,11 +295,28 @@ export function applyAction(editor: Editor, action: Action, speakers: Registry) 
 			if (!tid) return
 			// biome-ignore lint/suspicious/noExplicitAny: cross-shape prop shape
 			const s: any = editor.getShape(tid)
-			if (s) {
+			if (!s) break
+			// Filter patch to only keys that already exist on the shape's props.
+			// Gemini sometimes echoes ACTION-level fields (like
+			// `sourceProposalIds`, which is decision-card metadata used at
+			// creation time to draw `decides` arrows — NOT a tldraw shape prop)
+			// into update_card patches. tldraw's runtime validator rejects
+			// unknown props, so we silently drop them with a console.warn.
+			const allowed: Record<string, unknown> = {}
+			for (const [k, v] of Object.entries(action.patch ?? {})) {
+				if (k in s.props) {
+					allowed[k] = v
+				} else {
+					console.warn(
+						`[apply] update_card: dropping unknown prop "${k}" on ${s.type}`,
+					)
+				}
+			}
+			if (Object.keys(allowed).length > 0) {
 				editor.updateShape({
 					id: tid,
 					type: s.type,
-					props: { ...s.props, ...action.patch },
+					props: { ...s.props, ...allowed },
 				})
 			}
 			break
