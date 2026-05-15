@@ -11,6 +11,21 @@ export interface RoomClient {
 	color?: string
 }
 
+/**
+ * One turn in the agent-chat history for a canvas. Kept in-memory only —
+ * chat history is best-effort across server restarts (transcripts and the
+ * canvas itself persist, so the agent always has fresh context regardless).
+ *
+ * `actionIds` lets us show "you asked X → here's what I did" lineage in the
+ * chat panel without re-walking the action log.
+ */
+export interface ChatTurn {
+	role: 'user' | 'assistant'
+	text: string
+	actionIds?: string[]
+	ts: number
+}
+
 export class Room {
 	id: string
 	clients: Set<RoomClient> = new Set()
@@ -22,6 +37,10 @@ export class Room {
 	// the orchestrator. Set via an `enroll` WS message with `primary: true`.
 	primaryUser: { displayName: string; color: string } | null = null
 	actionHistory: Action[] = []
+	// In-memory chat history for the agent panel. Cap at 40 turns (20 user +
+	// 20 assistant pairs) per room so a long session doesn't balloon memory
+	// or LLM context. Oldest-first; new turns push, the oldest get sliced off.
+	chatHistory: ChatTurn[] = []
 	onTick: () => Promise<void>
 	// True once the first DB hydration completes. Until then, recordAction
 	// would race with the replay and possibly insert before existing history
@@ -104,6 +123,18 @@ export class Room {
 		void appendAction(this.id, action).catch((err) => {
 			console.error(`[room ${this.id}] appendAction failed:`, err)
 		})
+	}
+
+	/**
+	 * Append a chat turn for this canvas. Trims to the most-recent 40 turns
+	 * to bound memory. Chat history is in-memory only — see ChatTurn docstring.
+	 */
+	recordChatTurn(turn: ChatTurn) {
+		this.chatHistory.push(turn)
+		const MAX = 40
+		if (this.chatHistory.length > MAX) {
+			this.chatHistory = this.chatHistory.slice(-MAX)
+		}
 	}
 
 	broadcast(payload: unknown) {
