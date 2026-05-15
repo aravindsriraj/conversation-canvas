@@ -1,4 +1,5 @@
 import { HTMLContainer, Rectangle2d, ShapeUtil, T, type TLBaseShape } from 'tldraw'
+import { Stamp } from './_stamp'
 
 export type ProposalCardShape = TLBaseShape<
 	'proposal-card',
@@ -54,41 +55,58 @@ export class ProposalCardUtil extends ShapeUtil<ProposalCardShape> {
 	}
 
 	override component(shape: ProposalCardShape) {
-		const { content, proposerName, proposerColor, status } = shape.props
-		const opacity = status === 'superseded' ? 0.5 : 1
+		const { w, h, content, proposerName, proposerColor, status } = shape.props
+		// A proposal that has been folded into a decision visually recedes —
+		// reduced contrast lets the eye land on live material first.
+		const decided = status === 'decided'
+		const superseded = status === 'superseded'
+		const opacity = decided ? 0.65 : superseded ? 0.5 : 1
 		return (
 			<HTMLContainer
 				style={{
-					width: shape.props.w,
-					height: shape.props.h,
+					width: w,
+					height: h,
 					pointerEvents: 'all',
 					opacity,
 				}}
 			>
-				<div className="w-full h-full rounded-lg border border-zinc-300 bg-white shadow-sm p-3 flex flex-col gap-2">
-					<div className="flex items-center gap-2 text-xs">
-						<span
-							className="px-2 py-0.5 rounded-full text-white text-[10px] font-medium"
-							style={{ background: proposerColor }}
-						>
-							{proposerName}
-						</span>
-						<span className="text-zinc-500 uppercase tracking-wider text-[10px]">
+				<div
+					className="relative w-full h-full bg-paper text-ink flex flex-col"
+					style={{
+						borderRadius: 4,
+						boxShadow:
+							'0 1px 0 rgba(26,24,21,0.08), 0 8px 24px -12px rgba(26,24,21,0.18)',
+					}}
+				>
+					{/* Ink-bar: near-black for proposals (draft material). */}
+					<div
+						className="absolute left-0 top-0 bottom-0 w-1 bg-ink"
+						style={{ borderTopLeftRadius: 4, borderBottomLeftRadius: 4 }}
+					/>
+					<div className="flex items-center gap-2 px-4 pt-3 pb-2 border-b border-hairline">
+						<span className="font-display text-[10px] uppercase tracking-[0.18em] text-faded-ink">
 							Proposal
 						</span>
-						{status === 'decided' && (
-							<span className="text-emerald-700 text-[10px] font-semibold">
-								DECIDED
+						<span className="ml-auto inline-flex items-center gap-1.5 text-[10px]">
+							<span
+								className="w-1.5 h-1.5 rounded-full"
+								style={{ background: proposerColor }}
+							/>
+							<span className="font-sans tracking-tight text-ink">
+								{proposerName}
 							</span>
-						)}
+						</span>
 					</div>
-					<div className="text-sm text-zinc-900 leading-snug">{content}</div>
+					<div className="px-4 py-3 text-[14px] leading-snug font-sans text-ink">
+						{content}
+					</div>
+					{decided && <Stamp label="Decided" tone="crimson" />}
 				</div>
 			</HTMLContainer>
 		)
 	}
 
 	override indicator(shape: ProposalCardShape) {
-		return <rect width={shape.props.w} height={shape.props.h} rx={8} />
+		return <rect width={shape.props.w} height={shape.props.h} rx={4} />
 	}
 }

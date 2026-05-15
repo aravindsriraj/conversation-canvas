@@ -46,26 +46,53 @@ export class QuestionCardUtil extends ShapeUtil<QuestionCardShape> {
 		const { w, h, content, askerName, askerColor } = shape.props
 		return (
 			<HTMLContainer style={{ width: w, height: h, pointerEvents: 'all' }}>
-				<div className="w-full h-full rounded-lg border border-amber-300 bg-amber-50 shadow-sm p-3 flex flex-col gap-2">
-					<div className="flex items-center gap-2 text-xs">
-						<HelpCircle size={14} className="text-amber-700" />
-						<span
-							className="px-2 py-0.5 rounded-full text-white text-[10px]"
-							style={{ background: askerColor }}
-						>
-							{askerName}
-						</span>
-						<span className="text-amber-700 uppercase tracking-wider text-[10px] font-semibold">
+				<div
+					className="relative w-full h-full bg-paper text-ink flex flex-col"
+					style={{
+						borderRadius: 4,
+						boxShadow:
+							'0 1px 0 rgba(26,24,21,0.08), 0 8px 24px -12px rgba(26,24,21,0.18)',
+					}}
+				>
+					{/*
+					 * Ochre at 60% — desaturated so the question reads as "open thread"
+					 * rather than "active blocker". The crimson on Blocker stays loud.
+					 */}
+					<div
+						className="absolute left-0 top-0 bottom-0 w-1"
+						style={{
+							background: 'var(--color-ochre)',
+							opacity: 0.6,
+							borderTopLeftRadius: 4,
+							borderBottomLeftRadius: 4,
+						}}
+					/>
+					<div className="flex items-center gap-2 px-4 pt-3 pb-2 border-b border-hairline">
+						<HelpCircle size={12} className="text-ochre" />
+						<span className="font-display text-[10px] uppercase tracking-[0.18em] text-faded-ink">
 							Question
 						</span>
+						{askerName && (
+							<span className="ml-auto inline-flex items-center gap-1.5 text-[10px]">
+								<span
+									className="w-1.5 h-1.5 rounded-full"
+									style={{ background: askerColor }}
+								/>
+								<span className="font-sans tracking-tight text-ink">
+									{askerName}
+								</span>
+							</span>
+						)}
 					</div>
-					<div className="text-sm text-amber-950 leading-snug">{content}</div>
+					<div className="px-4 py-3 text-[14px] leading-snug font-sans text-ink">
+						{content}
+					</div>
 				</div>
 			</HTMLContainer>
 		)
 	}
 
 	override indicator(shape: QuestionCardShape) {
-		return <rect width={shape.props.w} height={shape.props.h} rx={8} />
+		return <rect width={shape.props.w} height={shape.props.h} rx={4} />
 	}
 }

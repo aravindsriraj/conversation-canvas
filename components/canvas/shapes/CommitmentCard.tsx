@@ -54,21 +54,42 @@ export class CommitmentCardUtil extends ShapeUtil<CommitmentCardShape> {
 		const { w, h, action, ownerName, ownerColor, deadline } = shape.props
 		return (
 			<HTMLContainer style={{ width: w, height: h, pointerEvents: 'all' }}>
-				<div className="w-full h-full rounded-lg border border-sky-300 bg-sky-50 shadow-sm p-3 flex flex-col gap-2">
-					<div className="flex items-center gap-2 text-xs">
-						<span
-							className="px-2 py-0.5 rounded-full text-white text-[10px] font-medium"
-							style={{ background: ownerColor }}
-						>
-							{ownerName}
-						</span>
-						<span className="text-sky-700 uppercase tracking-wider text-[10px] font-semibold">
+				<div
+					className="relative w-full h-full bg-paper text-ink flex flex-col"
+					style={{
+						borderRadius: 4,
+						boxShadow:
+							'0 1px 0 rgba(26,24,21,0.08), 0 8px 24px -12px rgba(26,24,21,0.18)',
+					}}
+				>
+					{/* Ochre ink-bar — illuminated-manuscript gold. */}
+					<div
+						className="absolute left-0 top-0 bottom-0 w-1 bg-ochre"
+						style={{ borderTopLeftRadius: 4, borderBottomLeftRadius: 4 }}
+					/>
+					<div className="flex items-center gap-2 px-4 pt-3 pb-2 border-b border-hairline">
+						<span className="font-display text-[10px] uppercase tracking-[0.18em] text-faded-ink">
 							Commitment
 						</span>
+						{ownerName && (
+							<span className="ml-auto inline-flex items-center gap-1.5 text-[10px]">
+								<span
+									className="w-1.5 h-1.5 rounded-full"
+									style={{ background: ownerColor }}
+								/>
+								<span className="font-sans tracking-tight text-ink">
+									{ownerName}
+								</span>
+							</span>
+						)}
 					</div>
-					<div className="text-sm text-sky-950 leading-snug">{action}</div>
+					<div className="px-4 py-3 text-[14px] leading-snug font-sans text-ink">
+						{action}
+					</div>
 					{deadline && (
-						<div className="text-xs text-sky-700 mt-auto">by {deadline}</div>
+						<div className="px-4 pb-3 mt-auto text-[11px] font-mono text-faded-ink">
+							by {deadline}
+						</div>
 					)}
 				</div>
 			</HTMLContainer>
@@ -76,6 +97,6 @@ export class CommitmentCardUtil extends ShapeUtil<CommitmentCardShape> {
 	}
 
 	override indicator(shape: CommitmentCardShape) {
-		return <rect width={shape.props.w} height={shape.props.h} rx={8} />
+		return <rect width={shape.props.w} height={shape.props.h} rx={4} />
 	}
 }

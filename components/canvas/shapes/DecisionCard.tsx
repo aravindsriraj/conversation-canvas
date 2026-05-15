@@ -1,4 +1,5 @@
 import { HTMLContainer, Rectangle2d, ShapeUtil, T, type TLBaseShape } from 'tldraw'
+import { Stamp } from './_stamp'
 
 export type DecisionCardShape = TLBaseShape<
 	'decision-card',
@@ -54,35 +55,62 @@ export class DecisionCardUtil extends ShapeUtil<DecisionCardShape> {
 	}
 
 	override component(shape: DecisionCardShape) {
-		const { content, ownerName, ownerColor, deadline, locked, w, h } = shape.props
+		const { content, ownerName, ownerColor, deadline, locked, w, h } =
+			shape.props
+		// Locked decisions are the boldest type on the canvas — the entire frame
+		// echoes the rubber-stamp: doubled olive border + a faint olive wash.
 		return (
 			<HTMLContainer style={{ width: w, height: h, pointerEvents: 'all' }}>
 				<div
-					className={`w-full h-full rounded-lg border-2 ${locked ? 'border-emerald-500' : 'border-emerald-300'} bg-emerald-50 shadow p-3 flex flex-col gap-2`}
+					className="relative w-full h-full bg-paper text-ink flex flex-col"
+					style={{
+						borderRadius: 4,
+						border: locked ? '2px solid var(--color-olive)' : 'none',
+						background: locked
+							? 'linear-gradient(135deg, rgba(46,83,55,0.04) 0%, rgba(46,83,55,0.0) 60%), var(--color-paper)'
+							: 'var(--color-paper)',
+						boxShadow:
+							'0 1px 0 rgba(26,24,21,0.08), 0 8px 24px -12px rgba(26,24,21,0.18)',
+					}}
 				>
-					<div className="flex items-center gap-2 text-xs">
-						<span className="text-emerald-700 uppercase tracking-wider text-[10px] font-semibold">
+					{/* Olive ink-bar — official-stamp green. */}
+					<div
+						className="absolute left-0 top-0 bottom-0 w-1 bg-olive"
+						style={{ borderTopLeftRadius: 4, borderBottomLeftRadius: 4 }}
+					/>
+					<div className="flex items-center gap-2 px-4 pt-3 pb-2 border-b border-hairline">
+						<span className="font-display text-[10px] uppercase tracking-[0.18em] text-olive">
 							{locked ? 'Decision · Locked' : 'Decision'}
 						</span>
 						{ownerName && (
-							<span
-								className="px-2 py-0.5 rounded-full text-white text-[10px]"
-								style={{ background: ownerColor }}
-							>
-								{ownerName}
+							<span className="ml-auto inline-flex items-center gap-1.5 text-[10px]">
+								<span
+									className="w-1.5 h-1.5 rounded-full"
+									style={{ background: ownerColor }}
+								/>
+								<span className="font-sans tracking-tight text-ink">
+									{ownerName}
+								</span>
 							</span>
 						)}
 					</div>
-					<div className="text-sm text-emerald-950 leading-snug">{content}</div>
+					<div
+						className={`px-4 py-3 text-[14px] leading-snug font-sans text-ink ${locked ? 'font-medium' : ''}`}
+					>
+						{content}
+					</div>
 					{deadline && (
-						<div className="text-xs text-emerald-700 mt-auto">by {deadline}</div>
+						<div className="px-4 pb-3 mt-auto text-[11px] font-mono text-faded-ink">
+							by {deadline}
+						</div>
 					)}
+					{locked && <Stamp label="Locked" tone="olive" rotate={6} />}
 				</div>
 			</HTMLContainer>
 		)
 	}
 
 	override indicator(shape: DecisionCardShape) {
-		return <rect width={shape.props.w} height={shape.props.h} rx={8} />
+		return <rect width={shape.props.w} height={shape.props.h} rx={4} />
 	}
 }

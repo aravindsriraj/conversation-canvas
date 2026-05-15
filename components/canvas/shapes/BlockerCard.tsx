@@ -38,18 +38,34 @@ export class BlockerCardUtil extends ShapeUtil<BlockerCardShape> {
 		const { w, h, content } = shape.props
 		return (
 			<HTMLContainer style={{ width: w, height: h, pointerEvents: 'all' }}>
-				<div className="w-full h-full rounded-lg border border-orange-400 bg-orange-50 shadow-sm p-3 flex flex-col gap-2">
-					<div className="flex items-center gap-2 text-xs text-orange-800 font-semibold">
-						<AlertTriangle size={14} />
-						<span className="uppercase tracking-wider text-[10px]">Blocker</span>
+				<div
+					className="relative w-full h-full bg-paper text-ink flex flex-col"
+					style={{
+						borderRadius: 4,
+						boxShadow:
+							'0 1px 0 rgba(26,24,21,0.08), 0 8px 24px -12px rgba(26,24,21,0.18)',
+					}}
+				>
+					{/* Crimson ink-bar — proof-mark red. */}
+					<div
+						className="absolute left-0 top-0 bottom-0 w-1 bg-crimson"
+						style={{ borderTopLeftRadius: 4, borderBottomLeftRadius: 4 }}
+					/>
+					<div className="flex items-center gap-2 px-4 pt-3 pb-2 border-b border-hairline">
+						<AlertTriangle size={12} className="text-crimson" />
+						<span className="font-display text-[10px] uppercase tracking-[0.18em] text-crimson">
+							Blocker
+						</span>
 					</div>
-					<div className="text-sm text-orange-950 leading-snug">{content}</div>
+					<div className="px-4 py-3 text-[14px] leading-snug font-sans text-ink">
+						{content}
+					</div>
 				</div>
 			</HTMLContainer>
 		)
 	}
 
 	override indicator(shape: BlockerCardShape) {
-		return <rect width={shape.props.w} height={shape.props.h} rx={8} />
+		return <rect width={shape.props.w} height={shape.props.h} rx={4} />
 	}
 }
