@@ -30,3 +30,14 @@ When you need current API details, consult these BEFORE pattern-matching against
 ## Orchestrator model
 
 The Gemini model for the orchestrator is **`gemini-3-flash-preview`**. Do not downgrade to `gemini-2.5-flash` or pick a different snapshot. If a call fails with "model not found", consult the gemini-api-dev skill and ask before swapping.
+
+---
+
+# Deploy policy (COMPULSORY — from user)
+
+**Develop & verify locally first. Deploy to production only when explicitly asked.**
+
+- Run `pnpm dev` for local verification. Production is at https://139.84.137.113.nip.io and stays untouched until the user says "deploy" or "ship to prod".
+- Commits and pushes to GitHub are fine at any time — they don't trigger a prod deploy.
+- The deploy script is `./deploy/deploy.sh` (SSHes to canvas@139.84.137.113, git-pulls, rebuilds, pm2-restarts). **Run this ONLY when the user explicitly requests a deploy.**
+- The user's flow: iterate locally → commit/push as you go → deploy at the end of a working session.
