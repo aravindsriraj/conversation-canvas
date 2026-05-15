@@ -289,8 +289,27 @@ export function applyAction(editor: Editor, action: Action, speakers: Registry) 
 			})
 			break
 		}
+		case 'create_budget_allocator': {
+			const layout = resolveLayout(action.layout, existing, {
+				defaultW: 380,
+				defaultH: 240,
+			})
+			editor.createShape({
+				id: tldrawId(action.id),
+				type: 'budget-allocator',
+				x: layout.x,
+				y: layout.y,
+				props: {
+					w: 380,
+					h: 240,
+					total: action.total,
+					currency: action.currency ?? '%',
+					splits: action.splits,
+				},
+			})
+			break
+		}
 		// L3 widgets still to implement.
-		case 'create_budget_allocator':
 		case 'create_gantt':
 		case 'create_bespoke_widget':
 			console.warn('[apply] L3 widget not yet implemented:', action.type)

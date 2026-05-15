@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { type Editor, Tldraw } from 'tldraw'
 import { BlockerCardUtil } from '@/components/canvas/shapes/BlockerCard'
+import { BudgetAllocatorUtil } from '@/components/canvas/shapes/BudgetAllocator'
 import { CommitmentCardUtil } from '@/components/canvas/shapes/CommitmentCard'
 import { DecisionCardUtil } from '@/components/canvas/shapes/DecisionCard'
 import { PriorityMatrixUtil } from '@/components/canvas/shapes/PriorityMatrix'
@@ -19,6 +20,7 @@ const customShapeUtils = [
 	BlockerCardUtil,
 	QuestionCardUtil,
 	PriorityMatrixUtil,
+	BudgetAllocatorUtil,
 ]
 
 type SpeakerRegistry = Record<string, { displayName: string; color: string }>
