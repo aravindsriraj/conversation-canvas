@@ -2,12 +2,22 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { type Editor, Tldraw } from 'tldraw'
+import { BlockerCardUtil } from '@/components/canvas/shapes/BlockerCard'
+import { CommitmentCardUtil } from '@/components/canvas/shapes/CommitmentCard'
+import { DecisionCardUtil } from '@/components/canvas/shapes/DecisionCard'
 import { ProposalCardUtil } from '@/components/canvas/shapes/ProposalCard'
+import { QuestionCardUtil } from '@/components/canvas/shapes/QuestionCard'
 import { TranscriptDrawer } from '@/components/room/TranscriptDrawer'
 import { applyAction } from '@/lib/actions/apply'
 import type { Action } from '@/lib/actions/schema'
 
-const customShapeUtils = [ProposalCardUtil]
+const customShapeUtils = [
+	ProposalCardUtil,
+	DecisionCardUtil,
+	CommitmentCardUtil,
+	BlockerCardUtil,
+	QuestionCardUtil,
+]
 
 type SpeakerRegistry = Record<string, { displayName: string; color: string }>
 
