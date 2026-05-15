@@ -1,3 +1,4 @@
+import { Show } from '@clerk/nextjs'
 import Link from 'next/link'
 
 /*
@@ -58,13 +59,21 @@ export default function Home() {
 						In real time. From the air in the room.
 					</p>
 					<div className="mt-12 flex flex-wrap gap-3">
-						<Link href="/room/demo" className="cta-primary group">
-							<span className="cta-bar" aria-hidden="true" />
-							<span>Enter the room</span>
-						</Link>
-						<Link href="/room/test" className="cta-secondary">
-							<span>Open the test room</span>
-						</Link>
+						<Show when="signed-out">
+							<Link href="/sign-in" className="cta-primary group">
+								<span className="cta-bar" aria-hidden="true" />
+								<span>Sign in</span>
+							</Link>
+							<Link href="/sign-up" className="cta-secondary">
+								<span>Sign up</span>
+							</Link>
+						</Show>
+						<Show when="signed-in">
+							<Link href="/dashboard" className="cta-primary group">
+								<span className="cta-bar" aria-hidden="true" />
+								<span>Open dashboard</span>
+							</Link>
+						</Show>
 					</div>
 				</div>
 			</section>
