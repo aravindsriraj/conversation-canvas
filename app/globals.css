@@ -1,26 +1,69 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/*
+ * Scriptorium design tokens.
+ *
+ * Tailwind v4 reads @theme directly to generate utility classes:
+ *   --color-paper      → bg-paper / text-paper / border-paper
+ *   --font-display     → font-display
+ *   etc.
+ *
+ * The `--font-*` values point at the CSS variables set by `next/font/google`
+ * in `app/layout.tsx`, so the type system stays declarative end-to-end.
+ */
+@theme {
+	--color-paper: #f7f3ec;
+	--color-ink: #1a1815;
+	--color-crimson: #b82626;
+	--color-olive: #2e5337;
+	--color-ochre: #c6862b;
+	--color-hairline: #dcd3c0;
+	--color-faded-ink: #a09583;
+
+	--font-display: var(--font-fraunces), ui-serif, Georgia, serif;
+	--font-sans: var(--font-plex), ui-sans-serif, system-ui, sans-serif;
+	--font-mono: var(--font-mono), ui-monospace, SFMono-Regular, monospace;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
+/*
+ * Paper grain.
+ *
+ * A subtle two-pass radial-gradient noise applied to the body's ::before
+ * pseudo-element. Sits at ~1.5% opacity — atmosphere, not texture. Using a
+ * pseudo-element (instead of a body filter) keeps it out of the layout flow
+ * and lets us isolate it from tldraw's stacking context.
+ */
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+	position: relative;
+}
+
+body::before {
+	content: "";
+	position: fixed;
+	inset: 0;
+	pointer-events: none;
+	z-index: 0;
+	opacity: 0.5;
+	background-image:
+		radial-gradient(
+			circle at 25% 35%,
+			rgba(26, 24, 21, 0.025) 0,
+			rgba(26, 24, 21, 0.025) 0.5px,
+			transparent 1px
+		),
+		radial-gradient(
+			circle at 75% 65%,
+			rgba(26, 24, 21, 0.02) 0,
+			rgba(26, 24, 21, 0.02) 0.5px,
+			transparent 1px
+		);
+	background-size: 3px 3px, 5px 5px;
+	background-position: 0 0, 1px 1px;
+	mix-blend-mode: multiply;
+}
+
+/* Keep the app shell above the grain. */
+body > * {
+	position: relative;
+	z-index: 1;
 }
