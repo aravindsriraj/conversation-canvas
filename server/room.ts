@@ -1,5 +1,6 @@
 import type { WebSocket } from 'ws'
 import type { Action } from '@/lib/actions/schema'
+import { appendAction, listActions } from '@/lib/db/actions'
 import type { TranscriptSegment } from '@/lib/speechmatics/client'
 import { TranscriptBuffer } from '@/lib/orchestrator/buffer'
 
@@ -22,6 +23,11 @@ export class Room {
 	primaryUser: { displayName: string; color: string } | null = null
 	actionHistory: Action[] = []
 	onTick: () => Promise<void>
+	// True once the first DB hydration completes. Until then, recordAction
+	// would race with the replay and possibly insert before existing history
+	// is loaded — we gate appends behind this flag.
+	hydrated = false
+	private hydrationPromise: Promise<void> | null = null
 
 	constructor(id: string, onTick: (room: Room) => Promise<void>) {
 		this.id = id
@@ -31,6 +37,43 @@ export class Room {
 			debounceMs: 3000,
 			onTick: () => this.onTick(),
 		})
+	}
+
+	/**
+	 * Load existing action history from Postgres. Called once per Room
+	 * instance lifetime (rooms are evicted from the registry when idle and
+	 * re-created on next join). Subsequent calls are idempotent.
+	 */
+	hydrate(): Promise<void> {
+		if (this.hydrationPromise) return this.hydrationPromise
+		this.hydrationPromise = (async () => {
+			try {
+				const stored = await listActions(this.id)
+				this.actionHistory = stored
+				// Rebuild the canvasShapes summary index so the orchestrator's
+				// snapshot prompt has full context after a server restart.
+				for (const action of stored) {
+					if ('id' in action && typeof action.id === 'string') {
+						const summary = summarizeAction(action)
+						this.canvasShapes.set(action.id, {
+							type: action.type,
+							summary,
+						})
+					}
+				}
+				console.log(
+					`[room ${this.id}] hydrated ${stored.length} action(s) from DB`,
+				)
+			} catch (err) {
+				console.error(`[room ${this.id}] hydrate failed:`, err)
+				// Continue with an empty history — better to lose replay than
+				// to block the join entirely.
+				this.actionHistory = []
+			} finally {
+				this.hydrated = true
+			}
+		})()
+		return this.hydrationPromise
 	}
 
 	addClient(client: RoomClient) {
@@ -55,6 +98,12 @@ export class Room {
 			const summary = summarizeAction(action)
 			this.canvasShapes.set(action.id, { type: action.type, summary })
 		}
+		// Persist asynchronously. If the write fails we keep the in-memory
+		// history so the live session continues, but the action won't replay
+		// after a reload — acceptable for hackathon, surface in logs.
+		void appendAction(this.id, action).catch((err) => {
+			console.error(`[room ${this.id}] appendAction failed:`, err)
+		})
 	}
 
 	broadcast(payload: unknown) {

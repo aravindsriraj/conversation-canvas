@@ -113,9 +113,13 @@ export function buildWsServer(registry: RoomRegistry) {
 				client.clerkUserId = userId
 				currentRoomId = msg.roomId
 				const room = registry.getOrCreate(msg.roomId)
+				// Replay needs to happen on a hydrated room — otherwise the
+				// first join of a fresh-from-eviction room would only see
+				// in-memory state (empty) and the user would lose their cards.
+				await room.hydrate()
 				room.addClient(client)
 				console.log(
-					`[ws] join room=${msg.roomId} user=${userId} (clients=${room.clients.size})`,
+					`[ws] join room=${msg.roomId} user=${userId} (clients=${room.clients.size}, history=${room.actionHistory.length})`,
 				)
 				socket.send(
 					JSON.stringify({ kind: 'history', actions: room.actionHistory }),
