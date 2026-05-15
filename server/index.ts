@@ -3,6 +3,7 @@ import { parse } from 'url'
 import next from 'next'
 import { buildWsServer, makeUpgradeRouter } from './ws'
 import { RoomRegistry, type Room } from './room'
+import { setRegistry } from './registry-singleton'
 import { runOrchestratorTick } from '@/lib/orchestrator/loop'
 
 const port = Number(process.env.PORT || 3000)
@@ -36,6 +37,10 @@ app.prepare().then(() => {
 	})
 
 	const registry = new RoomRegistry(onTick)
+	// Expose the registry to Next.js HTTP route handlers (specifically
+	// /api/agent) running in this same Node process. See
+	// server/registry-singleton.ts for the rationale.
+	setRegistry(registry)
 	const wss = buildWsServer(registry)
 	server.on('upgrade', makeUpgradeRouter(wss, upgradeToNext))
 

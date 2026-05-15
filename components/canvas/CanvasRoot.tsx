@@ -10,6 +10,7 @@ import { DecisionCardUtil } from '@/components/canvas/shapes/DecisionCard'
 import { PriorityMatrixUtil } from '@/components/canvas/shapes/PriorityMatrix'
 import { ProposalCardUtil } from '@/components/canvas/shapes/ProposalCard'
 import { QuestionCardUtil } from '@/components/canvas/shapes/QuestionCard'
+import { AgentPanel } from '@/components/room/AgentPanel'
 import { TranscriptDrawer } from '@/components/room/TranscriptDrawer'
 import { applyAction, rebuildIdMapFromEditor } from '@/lib/actions/apply'
 import type { Action } from '@/lib/actions/schema'
@@ -37,6 +38,7 @@ export function CanvasRoot({ roomId, canvasName, enrollment }: CanvasRootProps) 
 	const wsRef = useRef<WebSocket | null>(null)
 	const [speakers, setSpeakers] = useState<SpeakerRegistry>({})
 	const [accessError, setAccessError] = useState<string | null>(null)
+	const [agentOpen, setAgentOpen] = useState(false)
 	const { isLoaded, isSignedIn, getToken } = useAuth()
 	// We keep a ref alongside the state so the WS message handler reads the
 	// latest registry without forcing the WS effect to re-run (which would
@@ -299,8 +301,36 @@ export function CanvasRoot({ roomId, canvasName, enrollment }: CanvasRootProps) 
 
 	return (
 		<div style={{ position: 'fixed', inset: 0 }}>
-			<Tldraw onMount={onMount} shapeUtils={customShapeUtils} />
-			<TranscriptDrawer wsRef={wsRef} roomId={roomId} />
+			{/*
+				When the agent panel is open we narrow the tldraw mount area by
+				its width (360px) so the canvas isn't covered. tldraw resizes
+				its own ResizeObserver-driven viewport automatically; users
+				simply see the canvas shift left by 360px and stay fully
+				interactive.
+			*/}
+			<div
+				style={{
+					position: 'absolute',
+					top: 0,
+					left: 0,
+					bottom: 0,
+					right: agentOpen ? 360 : 0,
+					transition: 'right 280ms cubic-bezier(.22,.61,.36,1)',
+				}}
+			>
+				<Tldraw onMount={onMount} shapeUtils={customShapeUtils} />
+			</div>
+			<TranscriptDrawer
+				wsRef={wsRef}
+				roomId={roomId}
+				agentOpen={agentOpen}
+				onToggleAgent={() => setAgentOpen((v) => !v)}
+			/>
+			<AgentPanel
+				roomId={roomId}
+				isOpen={agentOpen}
+				onClose={() => setAgentOpen(false)}
+			/>
 			{/*
 				Top-left navigation pill: back link to dashboard + canvas name.
 				Sits above tldraw's z-stack so it stays clickable even when the

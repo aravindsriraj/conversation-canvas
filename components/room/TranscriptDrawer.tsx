@@ -11,6 +11,11 @@ interface Props {
 	// `MutableRefObject` was unified into `RefObject` in the new @types/react.
 	wsRef: React.RefObject<WebSocket | null>
 	roomId: string
+	// The agent panel toggle lives in the same top-center toolbar group as the
+	// mic + transcript buttons. We delegate state up to CanvasRoot so the
+	// panel and the toolbar pill stay in sync.
+	agentOpen?: boolean
+	onToggleAgent?: () => void
 }
 
 /*
@@ -29,7 +34,12 @@ interface Props {
  *   · Speaker chip on the left, sentence text on the right.
  *   · No line numbers. Whitespace and paragraph breaks carry the structure.
  */
-export function TranscriptDrawer({ wsRef, roomId }: Props) {
+export function TranscriptDrawer({
+	wsRef,
+	roomId,
+	agentOpen,
+	onToggleAgent,
+}: Props) {
 	const [segments, setSegments] = useState<TranscriptSegment[]>([])
 	const [recording, setRecording] = useState(false)
 	const [error, setError] = useState<string | null>(null)
@@ -248,6 +258,38 @@ export function TranscriptDrawer({ wsRef, roomId }: Props) {
 					)}
 					Transcript
 				</button>
+
+				{/*
+					"Ask AI" pill — third member of the toolbar group, opens the
+					right-side agent panel. The leading ochre dot mirrors the
+					crimson recording dot pattern but in a more reflective
+					editorial tone so the agent feels like a different kind of
+					presence than the microphone.
+				*/}
+				{onToggleAgent ? (
+					<button
+						type="button"
+						onClick={onToggleAgent}
+						aria-label={agentOpen ? 'Hide AI panel' : 'Show AI panel'}
+						aria-pressed={!!agentOpen}
+						title={agentOpen ? 'Hide AI (Esc)' : 'Ask AI'}
+						className={[
+							'px-3 py-2 rounded-sm border bg-paper',
+							'flex items-center gap-2',
+							'font-display text-[10px] uppercase tracking-[0.22em]',
+							'transition-colors',
+							agentOpen
+								? 'border-ink text-ink'
+								: 'border-hairline text-faded-ink hover:text-ink hover:border-ink',
+						].join(' ')}
+					>
+						<span
+							className="w-1.5 h-1.5 bg-ochre rounded-full"
+							aria-hidden="true"
+						/>
+						Ask AI
+					</button>
+				) : null}
 			</div>
 
 			{/* ── Bottom slide-up drawer ─────────────────────────────────── */}
