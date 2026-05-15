@@ -301,11 +301,34 @@ export function CanvasRoot({ roomId, canvasName, enrollment }: CanvasRootProps) 
 		<div style={{ position: 'fixed', inset: 0 }}>
 			<Tldraw onMount={onMount} shapeUtils={customShapeUtils} />
 			<TranscriptDrawer wsRef={wsRef} roomId={roomId} />
-			{canvasName && (
-				<div className="pointer-events-none absolute top-2 left-1/2 -translate-x-1/2 z-50 px-3 py-1 bg-paper/80 border border-hairline rounded-sm font-display text-[11px] uppercase tracking-[0.18em] text-ink">
-					{canvasName}
-				</div>
-			)}
+			{/*
+				Top-left navigation pill: back link to dashboard + canvas name.
+				Sits above tldraw's z-stack so it stays clickable even when the
+				editor has focus. Hairline-framed paper to match the Scriptorium
+				chrome — fits in next to tldraw's own toolbar without competing
+				visually.
+			*/}
+			<div className="absolute top-2 left-2 z-[450] flex items-center gap-2 px-3 py-1.5 bg-paper/90 backdrop-blur-[2px] border border-hairline rounded-sm">
+				<a
+					href="/dashboard"
+					title="Back to dashboard"
+					className="font-mono text-[11px] uppercase tracking-[0.22em] text-faded-ink hover:text-ink transition-colors flex items-center gap-1.5"
+				>
+					<span aria-hidden="true">‹</span>
+					<span>Dashboard</span>
+				</a>
+				{canvasName && (
+					<>
+						<span
+							className="w-px h-3 bg-hairline"
+							aria-hidden="true"
+						/>
+						<span className="font-display text-[11px] uppercase tracking-[0.18em] text-ink">
+							{canvasName}
+						</span>
+					</>
+				)}
+			</div>
 		</div>
 	)
 }
