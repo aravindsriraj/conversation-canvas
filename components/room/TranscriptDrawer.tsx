@@ -304,22 +304,20 @@ export function TranscriptDrawer({ wsRef, roomId }: Props) {
 								: 'Click "Listen" above to start recording.'}
 						</div>
 					) : (
+						// Single-user mode: every utterance is the logged-in user, so
+						// we drop the speaker chip — it'd just be the same name (or
+						// "S1") repeated on every line. The body reads cleanly as one
+						// voice now. Diarization stays ON internally so the
+						// orchestrator can still cluster fragments into utterances.
 						utterances.map((u) => (
-							<div
+							<p
 								key={u.key}
-								className="grid grid-cols-[40px_1fr] gap-3 items-baseline"
+								className={`font-mono text-[13px] leading-[1.55] m-0 ${
+									u.isFinal ? 'text-ink' : 'text-faded-ink'
+								}`}
 							>
-								<span className="font-display text-[11px] uppercase tracking-[0.18em] text-faded-ink text-right">
-									{u.speaker}
-								</span>
-								<p
-									className={`font-mono text-[13px] leading-[1.55] m-0 ${
-										u.isFinal ? 'text-ink' : 'text-faded-ink'
-									}`}
-								>
-									{u.text}
-								</p>
-							</div>
+								{u.text}
+							</p>
 						))
 					)}
 				</div>
