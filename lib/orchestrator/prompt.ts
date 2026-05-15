@@ -1,3 +1,5 @@
+import type { Action } from '@/lib/actions/schema'
+import type { CanvasMemory } from '@/lib/db/memories'
 import type { TranscriptSegment } from '@/lib/speechmatics/client'
 
 export interface CanvasSnapshotItem {
@@ -12,25 +14,180 @@ export interface SpeakerRegistryItem {
 }
 
 export const SYSTEM_PROMPT = `
-You are a "meeting cartographer." You observe a multi-speaker conversation and emit UI actions that build a living decision artifact on a shared canvas. Your job is NOT to transcribe — the transcript is provided to you. Your job is to compose structure.
+You are the agent driving a shared meeting canvas. You watch a multi-speaker
+voice transcript and emit typed UI actions to build a living artifact.
 
-RULES:
-1. Emit actions ONLY for material substance: proposals, decisions, commitments, blockers, open questions, and structural links between them. Skip small talk, hedging, filler.
-2. A "proposal" is a future-tense suggestion the speaker is advocating for (e.g., "we should X", "I think we should X", "let's consider X").
-3. A "decision" is a LOCKED commitment language: "let's go with", "agreed", "decided", "we'll do X". Use \`create_decision_card\` AND \`lock_decision\`. If the decision resolves prior proposals, list them in \`sourceProposalIds\` and add \`link_nodes\` with kind=\`decides\` from each proposal to the decision. NEVER create a new \`decision_card\` for a topic that already has a decision on the canvas. The current canvas snapshot lists existing shapes by id and summary — if you see a decision card whose summary covers the same agreement, use \`update_card\` on that decision's id (patch its \`content\` field) instead of creating a new one. Duplicate decisions confuse the meeting story.
-4. A "commitment" is an owned action item: "I'll do X by Y", "Alice will own Z." Use \`create_commitment_card\` with the owner's speaker ID and a parseable deadline string (raw English, e.g., "next Friday"). A commitment is emitted EVEN IF it appears in the same utterance as a decision. They are independent. When you hear "X agreed, and Alice will do Y by Z", emit a \`create_decision_card\` AND a SEPARATE \`create_commitment_card\`. NEVER fold commitment text (owner + action + deadline) into the decision's \`content\` field — the decision content describes ONLY what was decided, not who will do what. If a speaker's name is mentioned in third person (e.g., "Alice will own X"), match it against the SPEAKERS registry to recover their speakerId (e.g., if the registry says "S0 = Alice", then "Alice will…" uses \`ownerSpeakerId: "S0"\`). If a first-person speaker commits ("I'll own X"), use that speaker's ID from the bracketed transcript tag.
-5. A "blocker" is something that prevents progress: "but X hasn't happened yet", "we can't until Y." Use \`create_blocker_card\` and \`link_nodes\` kind=\`blocks\` to the blocked items.
-6. Use \`link_nodes\` to capture relations: kind=\`counters\` when a proposal contradicts a prior one; kind=\`supports\` when it reinforces; kind=\`contradicts\` when a claim contradicts an earlier factual claim from earlier in this meeting.
-7. Bespoke widgets:
-   - \`create_priority_matrix\` ONLY when a speaker explicitly invokes "rank by", "matrix", "impact vs effort", "prioritize by". For each item, infer a distinct (impact, effort) pair in [0..1] based on the context. NEVER put multiple items at the same coordinates. If you don't know, spread them across the quadrants — e.g. 4 items at roughly (0.7, 0.3), (0.3, 0.3), (0.7, 0.7), (0.3, 0.7).
-   - \`create_budget_allocator\` ONLY when a speaker explicitly proposes an allocation/split with percentages or amounts ("60/30/10", "split the budget", "allocate X% to Y").
-   - \`create_gantt\` ONLY when a speaker explicitly invokes "timeline", "schedule", "gantt", "by when".
-8. ID DISCIPLINE: When updating or referencing an existing card, USE ITS EXISTING ID. Do not create duplicate cards. Look at the canvas snapshot for current shape IDs.
-9. LAYOUT: Use semantic \`layout\` hints only (\`below\`/\`right_of\`/\`inside_frame\`/\`cluster_with\`). Never pick pixel coordinates.
-10. Speaker IDs: Use exactly the speaker IDs given to you in the registry. They are short tokens like "S0", "S1".
-11. If nothing material has changed since the last tick, return an empty actions array.
+YOU OPERATE IN TWO MODES — distinguish them per utterance:
 
-OUTPUT FORMAT: A JSON object \`{ "actions": [...] }\` validated by the provided schema.
+──────────────────────────────────────────────────────────────────────
+MODE A  ·  PASSIVE MEETING CAPTURE  (default for almost every utterance)
+──────────────────────────────────────────────────────────────────────
+Extract material substance: proposals, decisions, commitments, blockers,
+open questions, structural links. Skip small talk, filler, hedging.
+
+MODE B  ·  DIRECT CANVAS COMMAND  (only when the speaker addresses the
+                                  canvas with an imperative verb)
+──────────────────────────────────────────────────────────────────────
+Phrases like "create a title card …", "add a yellow sticky note saying X",
+"delete the blocker about budget", "make the proposal red", "move the
+priority matrix down", "align all the blockers to the left", "draw a
+rectangle saying Vietnam Trip", "zoom to the decision". The speaker is
+TALKING TO THE CANVAS, not capturing meeting content. Emit the matching
+action directly using the FULL vocabulary below — including L1 native
+shapes (note/geo/text) and L4 manipulation (delete/move/resize/style/
+align/distribute/reorder/zoom/arrow) which the meeting-capture mode never
+uses on its own.
+
+Markers of MODE B (any one is usually enough):
+  • Imperative verb at start: create, add, delete, remove, make, move,
+    draw, align, distribute, resize, recolor, zoom, focus, bring, send.
+  • Explicit reference to the canvas vocabulary: "card", "note", "box",
+    "rectangle", "circle", "arrow", "title", "heading", "sticky".
+  • Single speaker giving an instruction (no back-and-forth discussion).
+  • Voice transcripts may include stutters, repeats, or wrong word
+    recognition ("the with the text" → "with the text"; "2007" → "2027"
+    if context clearly indicates a future year). Normalize before emitting.
+
+When in doubt between modes, pick MODE A. Direct commands have to be clear.
+
+──────────────────────────────────────────────────────────────────────
+PASSIVE MODE RULES  (apply to MODE A only)
+──────────────────────────────────────────────────────────────────────
+1. A "proposal" is a future-tense suggestion the speaker is advocating for
+   ("we should X", "I think we should X", "let's consider X").
+2. A "decision" is locked-commitment language: "let's go with", "agreed",
+   "decided", "we'll do X". Emit \`create_decision_card\` AND
+   \`lock_decision\`. If it resolves prior proposals, list them in
+   \`sourceProposalIds\` and add \`link_nodes\` kind=decides from each
+   proposal → the decision. NEVER duplicate a decision for the same topic
+   — the canvas snapshot lists existing decisions by id and summary; if a
+   match exists, use \`update_card\` on that id instead.
+3. A "commitment" is an owned action item ("I'll do X by Y", "Alice will
+   own Z"). Use \`create_commitment_card\` with the owner's speakerId and
+   a parseable deadline string. ALWAYS emit a commitment SEPARATELY from
+   any decision it co-occurs with — don't fold the action+deadline into
+   the decision's content. Third-person names ("Alice will…") match
+   against the SPEAKERS registry to recover the speakerId.
+4. A "blocker" prevents progress ("but X hasn't happened", "we can't
+   until Y"). Use \`create_blocker_card\` + \`link_nodes\` kind=blocks
+   to the blocked items.
+5. Questions: emit \`create_question_card\` for any open question that
+   surfaces — "What's…", "How do we…", "When can…", "Should we…", or any
+   sentence ending with "?" that doesn't have an immediate answer in the
+   same utterance. Skip rhetorical ones ("Right?", "Make sense?").
+6. \`link_nodes\` relation kinds: \`counters\` for contradicting prior
+   proposal; \`supports\` for reinforcing; \`contradicts\` for an earlier
+   factual claim being contradicted; \`depends_on\` for dependency.
+7. L3 widgets (only when EXPLICITLY invoked):
+   - \`create_priority_matrix\` for "rank by", "matrix", "impact vs effort".
+     Each item gets a DISTINCT (impact, effort) in [0..1]. NEVER stack at
+     the same coordinates.
+   - \`create_budget_allocator\` for explicit allocation/split with
+     percentages ("60/30/10", "split the budget").
+   - \`create_gantt\` for "timeline", "schedule", "gantt", "by when".
+
+──────────────────────────────────────────────────────────────────────
+DIRECT-COMMAND MODE RULES  (apply to MODE B only)
+──────────────────────────────────────────────────────────────────────
+8. Use the FULL vocabulary listed below — most direct commands map to
+   \`create_note\` (sticky), \`create_geo\` (box/circle/triangle/etc.),
+   \`create_text\` (heading/label), \`delete_shapes\`, \`move_shape\`,
+   \`resize_shape\`, \`set_shape_style\`, \`align_shapes\`,
+   \`distribute_shapes\`, \`reorder_shapes\`, \`zoom_to_shapes\`,
+   \`create_arrow\`, or \`update_card\` (refining an existing card's
+   content).
+9. When the user says "delete the X" or "move the X", look in the CURRENT
+   CANVAS section for the shape whose SUMMARY matches X, and use that
+   shape's existing id. Do NOT invent ids referring to deleted or
+   non-existent shapes.
+10. Direct commands don't have a speakerId requirement (no proposer/asker
+    /owner). Skip the speaker-id fields entirely for these.
+
+──────────────────────────────────────────────────────────────────────
+SHARED RULES
+──────────────────────────────────────────────────────────────────────
+11. ID DISCIPLINE: When referencing an existing card, USE ITS EXISTING ID
+    from the CURRENT CANVAS section. Never invent ids that aren't on the
+    canvas. New shapes pick a short distinct id.
+12. LAYOUT hints (optional, must include the required sibling field):
+    \`below\`/\`above\`/\`right_of\`/\`left_of\` need \`of: <existing-id>\`;
+    \`grid\` needs \`columns: <int>\`; \`cluster_with\` needs
+    \`nodeIds: [...]\`; \`inside_frame\` needs \`of: <frame-id>\`.
+13. Speaker IDs come from the SPEAKERS registry — short tokens like "S0",
+    "S1". Used only for proposer/asker/owner fields in passive mode.
+14. If nothing material happened AND no direct command was issued, return
+    an empty actions array.
+15. RE-EMIT GUARD: the RECENT_ACTIONS section lists everything that has
+    ALREADY been emitted across voice + chat. Do NOT re-emit the same
+    proposal, decision, commitment, blocker, question, link, lock,
+    update, alignment, deletion, style-change, etc. If the same
+    utterance is still in the 90s transcript window because Speechmatics
+    just re-finalized a partial, you'll already have an entry for it in
+    RECENT_ACTIONS — skip it. Only emit something that genuinely
+    advances the canvas state. If an action you'd want to emit has a
+    near-identical entry in RECENT_ACTIONS, prefer an empty actions
+    array.
+16. LONG-TERM MEMORY: the LONG-TERM MEMORY section is a compressed prose
+    summary of voice + chat history older than the recent window. It
+    captures SOFT context (reasoning behind decisions, abandoned lines
+    of thought, recurring themes, unresolved tensions, implicit
+    follow-ups) — NOT structured state (decisions, commitments, etc.
+    live in CURRENT CANVAS). Use the memory to inform tone, anticipate
+    follow-ups, and avoid re-litigating settled topics. The voice
+    thread shows what was said in the meeting; the chat thread shows
+    what the user asked via the chat panel — both visible to you so
+    cross-mode references work ("the user just deleted X via chat").
+
+──────────────────────────────────────────────────────────────────────
+FULL ACTION VOCABULARY  (closed list — NEVER invent new types)
+──────────────────────────────────────────────────────────────────────
+L1 meeting cards:
+  create_proposal_card    { id, proposerSpeakerId, content, ts, layout? }
+  create_decision_card    { id, content, ownerSpeakerId?, deadline?,
+                            sourceProposalIds?, layout? }
+  create_commitment_card  { id, ownerSpeakerId, action, deadline?, layout? }
+  create_blocker_card     { id, content, blockedNodeIds?, layout? }
+  create_question_card    { id, askedBySpeakerId, content, layout? }
+L1 native shapes (MODE B mostly):
+  create_note   { id, content, color?, layout? }
+    color ∈ {yellow (default), orange, red, light-red, violet,
+             light-violet, blue, light-blue, green, light-green, grey,
+             black, white}
+  create_geo    { id, geo, content?, color?, fill?, w?, h?, layout? }
+    geo ∈ {rectangle, ellipse, triangle, diamond, pentagon, hexagon,
+           octagon, star, rhombus, oval, trapezoid, cloud, heart,
+           x-box, check-box, arrow-right, arrow-left, arrow-up,
+           arrow-down}
+    fill ∈ {none, semi (default), solid, pattern}
+  create_text   { id, content, color?, size?, layout? }
+    size ∈ {s, m (default), l, xl}
+L2 graph:
+  link_nodes  { from, to, kind, label? }
+    kind ∈ {supports, counters, depends_on, decides, blocks, contradicts}
+  group_into_frame { nodeIds, label }
+  lock_decision    { id }
+  update_card      { id, patch }   # use to refine an existing card content
+L3 widgets:
+  create_priority_matrix   (passive only)
+  create_budget_allocator  (passive only)
+  create_gantt             (passive only)
+L4 manipulation (MODE B only):
+  delete_shapes      { ids: [...] }
+  move_shape         { id, x?, y?, dx?, dy? }
+  resize_shape       { id, w?, h? }
+  set_shape_style    { id, color?, fill?, dash?, size?, font? }
+    dash ∈ {draw, solid, dashed, dotted}
+    font ∈ {draw, sans, serif, mono}
+  align_shapes       { ids: [...≥2], op }
+    op ∈ {left, right, center-horizontal, top, bottom, center-vertical}
+  distribute_shapes  { ids: [...≥3], op: horizontal|vertical }
+  reorder_shapes     { ids: [...], op: to_front|to_back|forward|backward }
+  zoom_to_shapes     { ids? }   # empty → fit all
+  create_arrow       { id, start: {x,y}, end: {x,y}, text?, color?, kind? }
+    kind ∈ {arc (default), elbow}
+
+OUTPUT FORMAT: A JSON object \`{ "actions": [...] }\` validated by the
+provided schema.
 
 EXAMPLES:
 
@@ -148,6 +305,19 @@ export function buildUserPrompt(args: {
   transcript: TranscriptSegment[]
   canvas: CanvasSnapshotItem[]
   speakers: SpeakerRegistryItem[]
+  // Recent actions emitted by EITHER the voice orchestrator or the chat
+  // agent — they share `room.actionHistory`. Lets the model see "what I
+  // just did" without inferring it from canvas shape diffs, which helps
+  // it avoid re-emitting the same link / update / refinement on the
+  // next tick when the same utterance is still in the 90s window.
+  recentActions?: Action[]
+  // Long-term compressed memory. The canvas above is the structured
+  // memory (source of truth for state); this block carries the SOFT
+  // signals — why a decision was reached, lines of thought pursued and
+  // dropped, recurring themes, unresolved tensions, pending follow-ups.
+  // Both threads (voice + chat) injected so direct commands typed in
+  // chat are visible to the voice path and vice versa.
+  memory?: CanvasMemory | null
 }) {
   const transcriptText = args.transcript
     .map((s) => `[${s.speaker}] ${s.text}`)
@@ -157,5 +327,157 @@ export function buildUserPrompt(args: {
       ? '(empty)'
       : args.canvas.map((c) => `- ${c.id} (${c.type}): ${c.summary}`).join('\n')
   const speakerText = args.speakers.map((s) => `${s.id} = ${s.displayName}`).join(', ')
-  return `SPEAKERS: ${speakerText || '(unknown)'}\n\nCURRENT CANVAS:\n${canvasText}\n\nTRANSCRIPT (last 90s):\n${transcriptText}\n\nEmit a JSON object {"actions":[...]}.`
+  const recentActionsText =
+    args.recentActions && args.recentActions.length > 0
+      ? args.recentActions.map((a) => `- ${summarizeActionShort(a)}`).join('\n')
+      : '(none yet)'
+  const memoryText = renderMemoryBlock(args.memory)
+  return `SPEAKERS: ${speakerText || '(unknown)'}
+
+CURRENT CANVAS:
+${canvasText}
+
+${memoryText}
+
+RECENT ACTIONS (last ${args.recentActions?.length ?? 0}, oldest first — these have ALREADY been emitted; do NOT re-emit them):
+${recentActionsText}
+
+TRANSCRIPT (last 90s):
+${transcriptText}
+
+Emit a JSON object {"actions":[...]}.`
+}
+
+/*
+ * Render the long-term memory record into a tight markdown block for
+ * the LLM prompt. Skips empty sections so the model doesn't see
+ * "RECURRING_THEMES: (none)" forty times across a session — gone-quiet
+ * fields just disappear.
+ *
+ * Used by BOTH the voice prompt builder (here) and the chat agent
+ * context builder. Behavior is identical so cross-mode coherence is
+ * guaranteed; the only difference is which path produced each thread.
+ */
+export function renderMemoryBlock(memory: CanvasMemory | null | undefined): string {
+  if (!memory) return 'LONG-TERM MEMORY: (none yet)'
+  const lines: string[] = ['LONG-TERM MEMORY (compressed from older voice + chat history; canvas state above is source of truth, this is soft context only):']
+
+  const voiceCovered = memory.voiceMsgsCovered
+  const chatCovered = memory.chatMsgsCovered
+  const hasVoice =
+    memory.voiceThread.narrative.trim().length > 0 ||
+    memory.voiceThread.key_moments.length > 0
+  const hasChat =
+    memory.chatThread.narrative.trim().length > 0 ||
+    memory.chatThread.intents_pursued.length > 0
+  const hasMeta =
+    memory.sharedMeta.open_tensions.length > 0 ||
+    memory.sharedMeta.recurring_themes.length > 0 ||
+    memory.sharedMeta.abandoned_paths.length > 0 ||
+    memory.sharedMeta.pending_followups.length > 0
+
+  if (!hasVoice && !hasChat && !hasMeta) {
+    return 'LONG-TERM MEMORY: (none yet — short session)'
+  }
+
+  if (hasVoice) {
+    lines.push(`\nVOICE THREAD (what was SAID; covers first ${voiceCovered} voice actions):`)
+    if (memory.voiceThread.narrative.trim().length > 0) {
+      lines.push(memory.voiceThread.narrative.trim())
+    }
+    for (const m of memory.voiceThread.key_moments) lines.push(`  • ${m}`)
+  }
+  if (hasChat) {
+    lines.push(`\nCHAT THREAD (what was ASKED via the chat panel; covers first ${chatCovered} chat turns):`)
+    if (memory.chatThread.narrative.trim().length > 0) {
+      lines.push(memory.chatThread.narrative.trim())
+    }
+    for (const m of memory.chatThread.intents_pursued) lines.push(`  • ${m}`)
+  }
+  if (hasMeta) {
+    lines.push('\nSHARED META:')
+    if (memory.sharedMeta.open_tensions.length > 0) {
+      lines.push('  open_tensions:')
+      for (const t of memory.sharedMeta.open_tensions) lines.push(`    - ${t}`)
+    }
+    if (memory.sharedMeta.recurring_themes.length > 0) {
+      lines.push('  recurring_themes:')
+      for (const t of memory.sharedMeta.recurring_themes) lines.push(`    - ${t}`)
+    }
+    if (memory.sharedMeta.abandoned_paths.length > 0) {
+      lines.push('  abandoned_paths:')
+      for (const p of memory.sharedMeta.abandoned_paths) lines.push(`    - ${p}`)
+    }
+    if (memory.sharedMeta.pending_followups.length > 0) {
+      lines.push('  pending_followups:')
+      for (const p of memory.sharedMeta.pending_followups) lines.push(`    - ${p}`)
+    }
+  }
+  return lines.join('\n')
+}
+
+/*
+ * Single-line summary of an action for the RECENT_ACTIONS section. Same
+ * shape the chat agent's context builder uses (lib/agent/context.ts) —
+ * deliberately mirrored so an action reads the same in both LLM prompts.
+ * Inlined here (instead of imported) because lib/orchestrator/prompt.ts
+ * is loaded by the custom server's tsx module graph and we want to keep
+ * its imports flat.
+ */
+function summarizeActionShort(a: Action): string {
+  const id = 'id' in a ? a.id : ''
+  switch (a.type) {
+    case 'create_proposal_card':
+      return `+proposal ${id}: "${a.content.slice(0, 120)}"`
+    case 'create_decision_card':
+      return `+decision ${id}: "${a.content.slice(0, 120)}"`
+    case 'create_commitment_card':
+      return `+commit ${id}: ${a.ownerSpeakerId} "${a.action.slice(0, 100)}"${a.deadline ? ` by ${a.deadline}` : ''}`
+    case 'create_blocker_card':
+      return `+blocker ${id}: "${a.content.slice(0, 120)}"`
+    case 'create_question_card':
+      return `+question ${id}: "${a.content.slice(0, 120)}"`
+    case 'create_note':
+      return `+note ${id}: "${a.content.slice(0, 120)}"${a.color ? ` · ${a.color}` : ''}`
+    case 'create_geo':
+      return `+${a.geo} ${id}${a.content ? `: "${a.content.slice(0, 100)}"` : ''}`
+    case 'create_text':
+      return `+text ${id}: "${a.content.slice(0, 120)}"`
+    case 'create_priority_matrix':
+      return `+matrix ${id}: ${a.items.length} items`
+    case 'create_budget_allocator':
+      return `+budget ${id}: ${a.splits.map((s) => `${s.label} ${s.amountPct}%`).join(', ').slice(0, 100)}`
+    case 'create_gantt':
+      return `+gantt ${id}: ${a.items.length} items`
+    case 'create_bespoke_widget':
+      return `+widget ${id}`
+    case 'link_nodes':
+      return `link ${a.from} → ${a.to} (${a.kind})`
+    case 'lock_decision':
+      return `lock ${a.id}`
+    case 'update_card':
+      return `update ${a.id}: ${JSON.stringify(a.patch).slice(0, 100)}`
+    case 'group_into_frame':
+      return `group "${a.label}" (${a.nodeIds.join(',')})`
+    case 'delete_shapes':
+      return `delete ${a.ids.join(',')}`
+    case 'move_shape':
+      return `move ${a.id}`
+    case 'resize_shape':
+      return `resize ${a.id} → ${a.w ?? '?'}×${a.h ?? '?'}`
+    case 'set_shape_style':
+      return `style ${a.id} ${[a.color && `color=${a.color}`, a.fill && `fill=${a.fill}`, a.dash && `dash=${a.dash}`, a.size && `size=${a.size}`, a.font && `font=${a.font}`].filter(Boolean).join(' ')}`
+    case 'align_shapes':
+      return `align ${a.op} (${a.ids.join(',')})`
+    case 'distribute_shapes':
+      return `distribute ${a.op} (${a.ids.join(',')})`
+    case 'reorder_shapes':
+      return `${a.op.replace('_', ' ')} (${a.ids.join(',')})`
+    case 'zoom_to_shapes':
+      return `zoom${a.ids?.length ? ` → ${a.ids.join(',')}` : ' to fit'}`
+    case 'create_arrow':
+      return `+arrow ${id}: (${a.start.x},${a.start.y}) → (${a.end.x},${a.end.y})`
+    default:
+      return (a as { type: string }).type
+  }
 }

@@ -56,6 +56,60 @@ export function AgentPanel({ roomId, isOpen, onClose }: Props) {
 		return () => window.removeEventListener('keydown', handler)
 	}, [isOpen, onClose])
 
+	// Hydrate from DB on first mount (per canvas). The server-side `Room`
+	// already loads chat history into memory for the LLM context, but the
+	// PANEL UI's `turns` state starts empty on every page load — so we
+	// fetch the persisted history once so the user sees their previous
+	// conversation re-rendered. Action chips are NOT reconstructed (the
+	// canvas itself already has those shapes; chips were a real-time UX
+	// affordance, not state). Race-guard: if the user types a message
+	// before hydration completes we still take their input — the
+	// hydrated turns prepend on arrival.
+	const hydratedRef = useRef(false)
+	useEffect(() => {
+		if (hydratedRef.current || !isSignedIn) return
+		hydratedRef.current = true
+		;(async () => {
+			try {
+				const token = await getToken().catch(() => null)
+				if (!token) return
+				const res = await fetch(
+					`/api/agent/history?canvasId=${encodeURIComponent(roomId)}`,
+					{ headers: { Authorization: `Bearer ${token}` } },
+				)
+				if (!res.ok) return
+				const body = (await res.json()) as {
+					turns?: {
+						role: 'user' | 'assistant'
+						text: string
+						actionIds?: string[]
+						ts: number
+					}[]
+				}
+				const fetched = body.turns ?? []
+				if (fetched.length === 0) return
+				setTurns((prev) => {
+					// Prepend the fetched history before any turns the user
+					// may have already started in this session. De-dupe by
+					// ts so a tab that was open during the persist sees no
+					// double bubbles. (Unlikely with our open-on-toggle UX
+					// but defensive.)
+					const seenTs = new Set(prev.map((t) => t.id))
+					const fromDb: ChatTurn[] = fetched.map((t, i) => ({
+						id: `db-${t.ts}-${i}`,
+						role: t.role,
+						text: t.text,
+						actions: [],
+					}))
+					const newOnes = fromDb.filter((t) => !seenTs.has(t.id))
+					return [...newOnes, ...prev]
+				})
+			} catch (err) {
+				console.warn('[agent] history fetch failed', err)
+			}
+		})()
+	}, [roomId, isSignedIn, getToken])
+
 	// Auto-scroll on new content.
 	useEffect(() => {
 		if (!isOpen) return
@@ -100,13 +154,21 @@ export function AgentPanel({ roomId, isOpen, onClose }: Props) {
 		abortRef.current = ac
 
 		try {
-			// Clerk's session token lives on the request cookie for HTTP route
-			// handlers; the /api route reads it via `auth()` directly, so we
-			// don't need to attach a bearer token here. The cookie is set by
-			// the same proxy.ts middleware that protects /api/canvases.
+			// Mint a fresh Clerk session JWT and pass it as a Bearer token. The
+			// session-cookie path is unreliable for these /api streams in dev
+			// (we observed `auth()` returning null userId even with cookies
+			// set), but the Bearer path is rock-solid — the same pattern that
+			// the snapshot PUT uses successfully.
+			const token = await getToken().catch(() => null)
+			if (!token) {
+				throw new Error('not signed in')
+			}
 			const res = await fetch('/api/agent', {
 				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
+				headers: {
+					'Content-Type': 'application/json',
+					Authorization: `Bearer ${token}`,
+				},
 				body: JSON.stringify({ canvasId: roomId, message }),
 				signal: ac.signal,
 			})
@@ -256,7 +318,13 @@ export function AgentPanel({ roomId, isOpen, onClose }: Props) {
 			<div className="border-t border-hairline px-4 py-3 shrink-0">
 				<textarea
 					value={input}
-					onChange={(e) => setInput(e.target.value)}
+					onChange={(e) => {
+						setInput(e.target.value)
+						// Clear stale error banner as soon as the user starts
+						// composing — the previous failure isn't relevant to
+						// what they're about to send.
+						if (error) setError(null)
+					}}
 					onKeyDown={(e) => {
 						if (e.key === 'Enter' && !e.shiftKey) {
 							e.preventDefault()
@@ -381,6 +449,12 @@ function summarizeAction(a: Action): string {
 			return a.content.slice(0, 80)
 		case 'create_question_card':
 			return a.content.slice(0, 80)
+		case 'create_note':
+			return a.content.slice(0, 80)
+		case 'create_geo':
+			return `${a.geo}${a.content ? ` — ${a.content.slice(0, 60)}` : ''}`
+		case 'create_text':
+			return a.content.slice(0, 80)
 		case 'create_priority_matrix':
 			return `${a.items.length} item${a.items.length === 1 ? '' : 's'}`
 		case 'create_budget_allocator':
@@ -400,6 +474,24 @@ function summarizeAction(a: Action): string {
 			return a.label
 		case 'create_bespoke_widget':
 			return 'bespoke widget'
+		case 'delete_shapes':
+			return a.ids.join(', ').slice(0, 80)
+		case 'move_shape':
+			return `${a.id}`
+		case 'resize_shape':
+			return `${a.id} → ${a.w ?? '?'}×${a.h ?? '?'}`
+		case 'set_shape_style':
+			return `${a.id} · ${[a.color, a.fill, a.dash, a.size, a.font].filter(Boolean).join(' ')}`.slice(0, 80)
+		case 'align_shapes':
+			return `${a.op} · ${a.ids.length} shapes`
+		case 'distribute_shapes':
+			return `${a.op} · ${a.ids.length} shapes`
+		case 'reorder_shapes':
+			return `${a.op.replace('_', ' ')} · ${a.ids.length} shapes`
+		case 'zoom_to_shapes':
+			return a.ids?.length ? `→ ${a.ids.length} shape${a.ids.length === 1 ? '' : 's'}` : 'fit all'
+		case 'create_arrow':
+			return `(${a.start.x},${a.start.y}) → (${a.end.x},${a.end.y})`
 		default:
 			return ''
 	}

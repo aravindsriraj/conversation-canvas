@@ -5,15 +5,17 @@
  * where `Room` instances normally get created and cached. But the `/api/agent`
  * HTTP route — handled by Next.js inside the same Node process — also needs to
  * write into the same Room (record actions, broadcast, read transcript buffer
- * + canvas snapshot). Both code paths import this module, so they end up
- * pointing at the same `RoomRegistry` instance.
+ * + canvas snapshot). Both code paths must end up pointing at the same
+ * `RoomRegistry` instance.
  *
- * Why a module singleton instead of dependency injection:
- *   - The Next.js route handler API takes no opaque ctx where we could thread
- *     a registry in. Module-scope state is the documented escape hatch.
- *   - tsx/Node module caching guarantees one instance per process. We do NOT
- *     run multiple workers (the WS upgrade routing wouldn't survive that
- *     anyway — sockets are per-process state).
+ * Why `globalThis` instead of a plain module-level `let`:
+ *   tsx loads server/index.ts via Node's native module system, but Next's
+ *   Turbopack bundles route handlers with their OWN copy of every imported
+ *   module — so a naive `let registry` lives in two different memory spaces
+ *   and `getRegistry()` from /api/agent returns null even though server/index
+ *   set it on boot. Pinning the reference onto `globalThis` is the documented
+ *   Next.js escape hatch (the same pattern used for shared Prisma clients in
+ *   dev — see https://nextjs.org/docs/messages/duplicate-module-load).
  *
  * Lifecycle:
  *   - server/index.ts calls `setRegistry(registry)` once after `RoomRegistry`
@@ -24,12 +26,18 @@
  */
 import type { RoomRegistry } from './room'
 
-let registry: RoomRegistry | null = null
+// Use a Symbol-keyed slot on globalThis so we never collide with another
+// library's globals (eg. Prisma's `__db` convention).
+const REGISTRY_KEY = Symbol.for('conversation-canvas.RoomRegistry')
+
+type GlobalWithRegistry = typeof globalThis & {
+	[REGISTRY_KEY]?: RoomRegistry | null
+}
 
 export function setRegistry(r: RoomRegistry): void {
-	registry = r
+	;(globalThis as GlobalWithRegistry)[REGISTRY_KEY] = r
 }
 
 export function getRegistry(): RoomRegistry | null {
-	return registry
+	return (globalThis as GlobalWithRegistry)[REGISTRY_KEY] ?? null
 }

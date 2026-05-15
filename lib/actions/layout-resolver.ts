@@ -34,7 +34,9 @@ export interface ShapeBox {
 
 export type LayoutHint =
 	| { kind: 'below'; of: string }
+	| { kind: 'above'; of: string }
 	| { kind: 'right_of'; of: string }
+	| { kind: 'left_of'; of: string }
 	| { kind: 'inside_frame'; of: string }
 	| { kind: 'grid'; columns: number }
 	| { kind: 'cluster_with'; nodeIds: string[] }
@@ -72,6 +74,8 @@ const LANE = {
 	DECISIONS: 300, // y for the row of decisions (below proposals)
 	SUPPORT: 520, // y for commitments / blockers / questions
 	WIDGETS: 760, // y for L3 (matrix, budget allocator, gantt)
+	NOTES: 80, // sticky notes sit in their own column to the right of
+	// the main canvas so they never collide with the meeting flow.
 } as const
 
 export function resolveLayout(
@@ -105,12 +109,20 @@ function computeInitial(
 	{ defaultW, defaultH, gap }: { defaultW: number; defaultH: number; gap: number },
 ): { x: number; y: number } {
 	// (a) Honor a hint that references a real shape — Gemini's contextual
-	// "below p2" / "right_of d1" is usually correct when the target exists.
+	// "below p2" / "above n1" / "right_of d1" / "left_of …" / "inside_frame …"
+	// is usually correct when the target exists. The shape-being-created's
+	// dimensions (defaultW/defaultH) matter for "above" and "left_of" since
+	// we need to place its TOP-LEFT corner the correct distance from the
+	// reference shape.
 	if (hint && 'of' in hint) {
 		const ref = existing.get(hint.of)
 		if (ref) {
 			if (hint.kind === 'below') return { x: ref.x, y: ref.y + ref.h + gap }
+			if (hint.kind === 'above')
+				return { x: ref.x, y: ref.y - defaultH - gap }
 			if (hint.kind === 'right_of') return { x: ref.x + ref.w + gap, y: ref.y }
+			if (hint.kind === 'left_of')
+				return { x: ref.x - defaultW - gap, y: ref.y }
 			if (hint.kind === 'inside_frame') return { x: ref.x + 16, y: ref.y + 32 }
 		}
 	}
@@ -191,6 +203,40 @@ function computeInitial(
 			return last
 				? { x: last.x + last.w + gap, y: LANE.SUPPORT }
 				: { x: 80, y: LANE.SUPPORT }
+		}
+
+		if (actionType === 'create_note') {
+			// Notes pile up in their own column to the right of the meeting
+			// flow. New notes stack vertically; once a column is exhausted
+			// the collision-avoidance pass below will push them further down.
+			const notes = existingByType.get('note') ?? []
+			// Far right of the main canvas — we assume the meeting columns
+			// occupy roughly x: 80 .. 1600. Notes start at 1700.
+			const COL_X = 1700
+			if (notes.length === 0) return { x: COL_X, y: LANE.NOTES }
+			const lowest = notes.reduce((best, b) =>
+				b.y + b.h > best.y + best.h ? b : best,
+			)
+			return { x: COL_X, y: lowest.y + lowest.h + gap }
+		}
+
+		if (actionType === 'create_geo' || actionType === 'create_text') {
+			// Generic tldraw shapes get their own staging column below the
+			// L3 widgets row so they don't collide with the meeting flow.
+			// Stack vertically by recency.
+			const geos = [
+				...(existingByType.get('geo') ?? []),
+				...(existingByType.get('text') ?? []),
+			]
+			const COL_X = 80
+			const COL_Y = LANE.WIDGETS + 240 // safely below L3 widgets
+			if (geos.length === 0) return { x: COL_X, y: COL_Y }
+			const lastRight = geos.reduce((best, b) =>
+				b.x + b.w > best.x + best.w ? b : best,
+			)
+			// Flow horizontally first; the collision avoidance pass will
+			// push down if we'd overlap.
+			return { x: lastRight.x + lastRight.w + gap, y: COL_Y }
 		}
 
 		if (

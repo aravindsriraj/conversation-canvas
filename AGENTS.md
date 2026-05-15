@@ -29,7 +29,7 @@ When you need current API details, consult these BEFORE pattern-matching against
 
 ## Orchestrator model
 
-The Gemini model for the orchestrator is **`gemini-3.1-flash-lite-preview`** — Google's fastest / cheapest Flash tier. Picked over `gemini-3-flash-preview` because the orchestrator only needs short-context reasoning (~30s transcript + tiny canvas snapshot) and we'd rather optimize latency than depth here. If you observe quality regressions (missed decisions, weird link inferences, dedup misses), the fallback is `gemini-3-flash-preview`. Do NOT use `gemini-2.5-flash` or earlier — those are deprecated per the gemini-api-dev skill.
+The Gemini model for the orchestrator + chat agent is **`gemini-3-flash-preview`** — the full Flash tier. We previously used the lite variant (`gemini-3.1-flash-lite`) for latency, but it was missing proposal-vs-proposal overlap calls and surfaced "Invalid discriminator value" tool errors on edge prompts; full Flash handles the discriminated-union vocabulary more reliably. Keep voice orchestrator (`lib/orchestrator/loop.ts`) and chat agent (`lib/agent/runner.ts`) on the same model so their action-output shapes stay consistent. The memory summarizer (`lib/memory/summarizer.ts`) uses **`gemini-3.1-flash-lite`** — compression doesn't need the full Flash's reasoning, and the lite tier's cost/latency wins matter for a background async pass that fires every 50 messages. Do NOT use `gemini-2.5-flash` or earlier — those are deprecated per the gemini-api-dev skill.
 
 ---
 

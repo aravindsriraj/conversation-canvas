@@ -1,4 +1,4 @@
-import { createShapeId, type Editor, type TLShapeId } from 'tldraw'
+import { createShapeId, type Editor, type TLShapeId, toRichText } from 'tldraw'
 import type { Action } from '@/lib/actions/schema'
 import { resolveLayout, type ShapeBox } from '@/lib/actions/layout-resolver'
 
@@ -212,6 +212,99 @@ export function applyAction(editor: Editor, action: Action, speakers: Registry) 
 			})
 			break
 		}
+		case 'create_geo': {
+			// Native tldraw geo shape — gives the agent rectangle / ellipse /
+			// triangle / diamond / star / heart / arrow-shaped boxes / etc.
+			// for diagramming requests that don't fit meeting cards.
+			const GEO_W = action.w ?? 220
+			const GEO_H = action.h ?? 160
+			const layout = resolveLayout(action.layout, existing, {
+				actionType: action.type,
+				existingByType,
+				defaultW: GEO_W,
+				defaultH: GEO_H,
+			})
+			createShapeIfMissing(editor, {
+				id: tldrawId(action.id),
+				type: 'geo',
+				x: layout.x,
+				y: layout.y,
+				props: {
+					// `geo` schema requires a default — Zod fills 'rectangle'.
+					geo: action.geo,
+					w: GEO_W,
+					h: GEO_H,
+					color: action.color ?? 'black',
+					// `none` makes the shape an outline only; default to `semi`
+					// (translucent fill) so geos read as real shapes rather
+					// than ghost outlines.
+					fill: action.fill ?? 'semi',
+					richText: toRichText(action.content ?? ''),
+				},
+			})
+			break
+		}
+		case 'create_text': {
+			// Native tldraw text shape — free-floating label. Auto-sizes
+			// horizontally; we let tldraw pick the height from the font/size
+			// token. `w` is required by the validator but ignored when
+			// autoSize is true.
+			const TEXT_W = 320
+			const TEXT_H = 40
+			const layout = resolveLayout(action.layout, existing, {
+				actionType: action.type,
+				existingByType,
+				defaultW: TEXT_W,
+				defaultH: TEXT_H,
+			})
+			createShapeIfMissing(editor, {
+				id: tldrawId(action.id),
+				type: 'text',
+				x: layout.x,
+				y: layout.y,
+				props: {
+					richText: toRichText(action.content),
+					color: action.color ?? 'black',
+					size: action.size ?? 'm',
+					w: TEXT_W,
+					autoSize: true,
+				},
+			})
+			break
+		}
+		case 'create_note': {
+			// Native tldraw sticky-note shape. The user's "add a box / note / jot
+			// this down" requests land here — anything the agent can't shoehorn
+			// into a meeting-specific card. We use tldraw's built-in `note`
+			// shape (not a custom util) so it inherits the native colour
+			// palette, in-place editing, drag-to-resize, etc.
+			//
+			// The note shape's text lives in `richText: TLRichText`. We build
+			// that with the documented `toRichText(string)` helper rather than
+			// constructing the doc/paragraph tree by hand.
+			const NOTE_W = 200
+			const NOTE_H = 200
+			const layout = resolveLayout(action.layout, existing, {
+				actionType: action.type,
+				existingByType,
+				defaultW: NOTE_W,
+				defaultH: NOTE_H,
+			})
+			createShapeIfMissing(editor, {
+				id: tldrawId(action.id),
+				type: 'note',
+				x: layout.x,
+				y: layout.y,
+				props: {
+					// `color` is a styled-prop on the native note. yellow is the
+					// classic sticky-note default — only override when the
+					// agent picked a colour explicitly.
+					color: action.color ?? 'yellow',
+					richText: toRichText(action.content),
+				},
+			})
+			break
+		}
 		case 'create_question_card': {
 			const layout = resolveLayout(action.layout, existing, {
 				actionType: action.type,
@@ -401,5 +494,177 @@ export function applyAction(editor: Editor, action: Action, speakers: Registry) 
 		case 'create_bespoke_widget':
 			console.warn('[apply] L3 widget not yet implemented:', action.type)
 			break
+
+		// ────────────────────────────────────────────────────────────────
+		// L4 — shape manipulation primitives. Each maps to a documented
+		// Editor method. Model ids → tldraw ids via ID_MAP; missing/
+		// unmapped ids are silently skipped so a partially-stale chat
+		// reference doesn't crash the whole turn.
+		// ────────────────────────────────────────────────────────────────
+		case 'delete_shapes': {
+			const tlIds = action.ids
+				.map((id) => ID_MAP.get(id))
+				.filter((id): id is TLShapeId => Boolean(id))
+			if (tlIds.length === 0) break
+			editor.deleteShapes(tlIds)
+			// Also evict from ID_MAP so future `link_nodes` / `update_card`
+			// references don't resolve to a deleted shape.
+			for (const modelId of action.ids) ID_MAP.delete(modelId)
+			break
+		}
+		case 'move_shape': {
+			const tid = ID_MAP.get(action.id)
+			if (!tid) break
+			// biome-ignore lint/suspicious/noExplicitAny: cross-shape prop access
+			const s: any = editor.getShape(tid)
+			if (!s) break
+			// Absolute coords take precedence over deltas — matches the
+			// "move to (100, 200)" vs "shift right by 50" semantic split.
+			const nextX = typeof action.x === 'number'
+				? action.x
+				: s.x + (action.dx ?? 0)
+			const nextY = typeof action.y === 'number'
+				? action.y
+				: s.y + (action.dy ?? 0)
+			editor.updateShape({
+				id: tid,
+				type: s.type,
+				x: nextX,
+				y: nextY,
+			})
+			break
+		}
+		case 'resize_shape': {
+			const tid = ID_MAP.get(action.id)
+			if (!tid) break
+			// biome-ignore lint/suspicious/noExplicitAny: cross-shape prop shape
+			const s: any = editor.getShape(tid)
+			if (!s) break
+			// Some shapes don't expose w/h (note autoSizes, text autoSizes
+			// horizontally). Only patch the props the shape actually carries
+			// so we don't fail tldraw's runtime validator.
+			const props: Record<string, unknown> = { ...s.props }
+			if (typeof action.w === 'number' && 'w' in s.props) {
+				props.w = action.w
+			}
+			if (typeof action.h === 'number' && 'h' in s.props) {
+				props.h = action.h
+			}
+			editor.updateShape({ id: tid, type: s.type, props })
+			break
+		}
+		case 'set_shape_style': {
+			const tid = ID_MAP.get(action.id)
+			if (!tid) break
+			// biome-ignore lint/suspicious/noExplicitAny: cross-shape prop shape
+			const s: any = editor.getShape(tid)
+			if (!s) break
+			// Only apply style props the shape actually has — color/fill/etc
+			// aren't universal (text has color but no fill; note has color
+			// but no dash; etc.). Silently drop unsupported keys.
+			const patch: Record<string, unknown> = {}
+			for (const k of ['color', 'fill', 'dash', 'size', 'font'] as const) {
+				const v = action[k]
+				if (typeof v === 'string' && k in s.props) {
+					patch[k] = v
+				}
+			}
+			if (Object.keys(patch).length === 0) break
+			editor.updateShape({
+				id: tid,
+				type: s.type,
+				props: { ...s.props, ...patch },
+			})
+			break
+		}
+		case 'align_shapes': {
+			const tlIds = action.ids
+				.map((id) => ID_MAP.get(id))
+				.filter((id): id is TLShapeId => Boolean(id))
+			if (tlIds.length < 2) break
+			editor.alignShapes(tlIds, action.op)
+			break
+		}
+		case 'distribute_shapes': {
+			const tlIds = action.ids
+				.map((id) => ID_MAP.get(id))
+				.filter((id): id is TLShapeId => Boolean(id))
+			if (tlIds.length < 3) break
+			editor.distributeShapes(tlIds, action.op)
+			break
+		}
+		case 'reorder_shapes': {
+			const tlIds = action.ids
+				.map((id) => ID_MAP.get(id))
+				.filter((id): id is TLShapeId => Boolean(id))
+			if (tlIds.length === 0) break
+			switch (action.op) {
+				case 'to_front':
+					editor.bringToFront(tlIds)
+					break
+				case 'to_back':
+					editor.sendToBack(tlIds)
+					break
+				case 'forward':
+					editor.bringForward(tlIds)
+					break
+				case 'backward':
+					editor.sendBackward(tlIds)
+					break
+			}
+			break
+		}
+		case 'zoom_to_shapes': {
+			// Empty/missing ids → fit ALL. The Editor API takes a bounds
+			// box, so we compute the union of selected shapes' page bounds
+			// and zoom to that. zoomToFit() with no args also works but
+			// targets the whole document; we prefer explicit subset support.
+			const tlIds = (action.ids ?? [])
+				.map((id) => ID_MAP.get(id))
+				.filter((id): id is TLShapeId => Boolean(id))
+			if (tlIds.length === 0) {
+				editor.zoomToFit({ animation: { duration: 400 } })
+				break
+			}
+			// Select the targets then zoom — simplest path that uses the
+			// public API. zoomToSelection respects the current selection.
+			editor.select(...tlIds)
+			editor.zoomToSelection({ animation: { duration: 400 } })
+			break
+		}
+		case 'create_arrow': {
+			// Freeform arrow — endpoints are raw page coords, no binding.
+			// `link_nodes` is the other arrow path that binds endpoints to
+			// existing shapes (they follow when those shapes move).
+			const linkColor: Record<string, string> = {
+				black: 'black',
+				grey: 'grey',
+				yellow: 'yellow',
+				orange: 'orange',
+				green: 'green',
+				blue: 'blue',
+				red: 'red',
+				violet: 'violet',
+				'light-blue': 'light-blue',
+				'light-green': 'light-green',
+				'light-red': 'light-red',
+				'light-violet': 'light-violet',
+			}
+			createShapeIfMissing(editor, {
+				id: tldrawId(action.id),
+				type: 'arrow',
+				x: 0,
+				y: 0,
+				props: {
+					// biome-ignore lint/suspicious/noExplicitAny: tldraw's arrow color is a string literal enum
+					color: (linkColor[action.color ?? 'black'] ?? 'black') as any,
+					kind: action.kind ?? 'arc',
+					start: { x: action.start.x, y: action.start.y },
+					end: { x: action.end.x, y: action.end.y },
+					text: action.text ?? '',
+				},
+			})
+			break
+		}
 	}
 }

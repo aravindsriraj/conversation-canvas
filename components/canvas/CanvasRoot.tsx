@@ -247,14 +247,19 @@ export function CanvasRoot({ roomId, canvasName, enrollment }: CanvasRootProps) 
 						return
 					}
 					let appliedAny = false
-					for (const a of actions) {
-						try {
-							applyAction(editor, a, speakersRef.current)
-							appliedAny = true
-						} catch (err) {
-							console.error('[canvas] applyAction failed', err, a)
+					// Wrap the batch in editor.run so all shape changes from
+					// one server message land as a single undo entry — three
+					// agent-emitted cards = one Ctrl+Z to reverse, not three.
+					editor.run(() => {
+						for (const a of actions) {
+							try {
+								applyAction(editor, a, speakersRef.current)
+								appliedAny = true
+							} catch (err) {
+								console.error('[canvas] applyAction failed', err, a)
+							}
 						}
-					}
+					})
 					if (appliedAny) {
 						hasLoadedRef.current = true
 						requestAnimationFrame(() => {

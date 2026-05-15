@@ -4,13 +4,13 @@ import type { Room } from '@server/room'
 import { ActionStreamSchema, type Action } from '@/lib/actions/schema'
 import { SYSTEM_PROMPT, buildUserPrompt } from '@/lib/orchestrator/prompt'
 
-// gemini-3.1-flash-lite-preview — Google's fastest / cheapest Flash tier,
-// tuned for high-frequency lightweight tasks. We don't need long-context
-// reasoning here (the orchestrator sees ~30s of transcript + a tiny canvas
-// snapshot), so the lite tier is the right speed/cost trade. If we observe
-// quality regressions (missing decisions, weird link inferences), bump to
-// gemini-3-flash-preview as a fallback.
-const MODEL_ID = 'gemini-3.1-flash-lite-preview'
+// gemini-3-flash-preview — the full Flash tier. We moved off the lite variant
+// (`gemini-3.1-flash-lite`) because the orchestrator's job is
+// classification + dedup + relation inference, and the lite tier was missing
+// subtle "this proposal vs. that proposal" overlap calls. Flash takes the
+// quality hit on cost / latency in exchange. If latency becomes a problem
+// again, the fallback is `gemini-3.1-flash-lite`.
+const MODEL_ID = 'gemini-3-flash-preview'
 
 /**
  * One pass of the orchestrator. Reads the buffered transcript window,
@@ -69,7 +69,18 @@ export async function runOrchestratorTick(room: Room): Promise<Action[]> {
 		displayName: v.displayName,
 	}))
 
-	const userPrompt = buildUserPrompt({ transcript, canvas, speakers })
+	// Hand the model the last 25 actions across both voice and chat so it
+	// can see what was *just* emitted and avoid re-emitting the same
+	// proposal / link / refinement on the next tick while the same
+	// utterance is still in the 90s transcript window.
+	const recentActions = room.actionHistory.slice(-25)
+	const userPrompt = buildUserPrompt({
+		transcript,
+		canvas,
+		speakers,
+		recentActions,
+		memory: room.memory,
+	})
 
 	// Verbose-ish per-tick logging during demo bring-up. Truncated to stay
 	// readable. If this gets noisy in production, gate behind DEBUG_ORCH=1.

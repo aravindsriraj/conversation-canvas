@@ -1,4 +1,5 @@
 import type { Action } from '@/lib/actions/schema'
+import { renderMemoryBlock } from '@/lib/orchestrator/prompt'
 import type { Room } from '@server/room'
 
 /**
@@ -58,6 +59,11 @@ export function buildAgentContext(room: Room): string {
 			lines.push(`  ${id} (${v.type}): ${v.summary}`)
 		}
 	}
+
+	// 3b. long-term compressed memory (cross-pollinated — chat agent
+	// sees both the voice thread AND the chat thread plus shared meta).
+	lines.push('')
+	lines.push(renderMemoryBlock(room.memory))
 
 	// 4. recent actions — last 25, condensed
 	const recent = room.actionHistory.slice(-25)
@@ -123,6 +129,12 @@ function summarizeAction(a: Action): string {
 			return `+blocker ${id}: "${a.content.slice(0, 160)}"`
 		case 'create_question_card':
 			return `+question ${id}: "${a.content.slice(0, 160)}"`
+		case 'create_note':
+			return `+note ${id}: "${a.content.slice(0, 160)}"`
+		case 'create_geo':
+			return `+${a.geo} ${id}${a.content ? `: "${a.content.slice(0, 120)}"` : ''}`
+		case 'create_text':
+			return `+text ${id}: "${a.content.slice(0, 160)}"`
 		case 'create_priority_matrix':
 			return `+matrix ${id}: ${a.items.length} items`
 		case 'create_budget_allocator':
@@ -139,6 +151,24 @@ function summarizeAction(a: Action): string {
 			return `update ${a.id}: ${JSON.stringify(a.patch).slice(0, 120)}`
 		case 'group_into_frame':
 			return `group "${a.label}" (${a.nodeIds.join(',')})`
+		case 'delete_shapes':
+			return `delete ${a.ids.join(',')}`
+		case 'move_shape':
+			return `move ${a.id} → (${a.x ?? `+${a.dx ?? 0}`}, ${a.y ?? `+${a.dy ?? 0}`})`
+		case 'resize_shape':
+			return `resize ${a.id} → ${a.w ?? '?'}×${a.h ?? '?'}`
+		case 'set_shape_style':
+			return `style ${a.id} ${[a.color && `color=${a.color}`, a.fill && `fill=${a.fill}`, a.dash && `dash=${a.dash}`, a.size && `size=${a.size}`, a.font && `font=${a.font}`].filter(Boolean).join(' ')}`
+		case 'align_shapes':
+			return `align ${a.op} (${a.ids.join(',')})`
+		case 'distribute_shapes':
+			return `distribute ${a.op} (${a.ids.join(',')})`
+		case 'reorder_shapes':
+			return `${a.op.replace('_', ' ')} (${a.ids.join(',')})`
+		case 'zoom_to_shapes':
+			return `zoom${a.ids?.length ? ` → ${a.ids.join(',')}` : ' to fit'}`
+		case 'create_arrow':
+			return `+arrow ${a.id}: (${a.start.x},${a.start.y}) → (${a.end.x},${a.end.y})`
 		default:
 			return (a as { type: string }).type
 	}
