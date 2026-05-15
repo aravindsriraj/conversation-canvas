@@ -89,12 +89,29 @@ export function CanvasRoot({ roomId, enrollment }: CanvasRootProps) {
 					// load time. Demo flows start with an empty room, so acceptable.
 					return
 				}
+				let appliedAny = false
 				for (const a of actions) {
 					try {
 						applyAction(editor, a, speakersRef.current)
+						appliedAny = true
 					} catch (err) {
 						console.error('[canvas] applyAction failed', err, a)
 					}
+				}
+				// After a batch of new shapes, animate the camera to fit
+				// everything on screen. Without this, cards drift off-viewport
+				// as the canvas grows and the user has to manually pan/zoom.
+				// We defer with rAF so the new shapes' bounds are committed
+				// before we read them. Skip on the very first batch if it's
+				// the empty history reply.
+				if (appliedAny) {
+					requestAnimationFrame(() => {
+						try {
+							editor.zoomToFit({ animation: { duration: 600 } })
+						} catch (err) {
+							console.warn('[canvas] zoomToFit failed', err)
+						}
+					})
 				}
 			} else if (m.kind === 'speakers' && m.registry) {
 				setSpeakers(m.registry)

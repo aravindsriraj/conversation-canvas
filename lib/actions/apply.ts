@@ -27,25 +27,32 @@ function tldrawId(modelId: string): TLShapeId {
 	return id
 }
 
-function getExistingBoxes(editor: Editor): Map<string, ShapeBox> {
-	const map = new Map<string, ShapeBox>()
+function getExistingBoxes(editor: Editor): {
+	byId: Map<string, ShapeBox>
+	byType: Map<string, ShapeBox[]>
+} {
+	const byId = new Map<string, ShapeBox>()
+	const byType = new Map<string, ShapeBox[]>()
 	for (const [modelId, shapeId] of ID_MAP.entries()) {
 		// biome-ignore lint/suspicious/noExplicitAny: tldraw shape props vary per type, generic read is fine here
 		const s: any = editor.getShape(shapeId)
-		if (s) {
-			map.set(modelId, {
-				x: s.x,
-				y: s.y,
-				w: s.props?.w ?? 280,
-				h: s.props?.h ?? 140,
-			})
+		if (!s) continue
+		const box: ShapeBox = {
+			x: s.x,
+			y: s.y,
+			w: s.props?.w ?? 280,
+			h: s.props?.h ?? 140,
 		}
+		byId.set(modelId, box)
+		const list = byType.get(s.type) ?? []
+		list.push(box)
+		byType.set(s.type, list)
 	}
-	return map
+	return { byId, byType }
 }
 
 export function applyAction(editor: Editor, action: Action, speakers: Registry) {
-	const existing = getExistingBoxes(editor)
+	const { byId: existing, byType: existingByType } = getExistingBoxes(editor)
 
 	switch (action.type) {
 		case 'create_proposal_card': {
@@ -54,6 +61,8 @@ export function applyAction(editor: Editor, action: Action, speakers: Registry) 
 				color: '#71717a',
 			}
 			const layout = resolveLayout(action.layout, existing, {
+				actionType: action.type,
+				existingByType,
 				defaultW: 280,
 				defaultH: 140,
 			})
@@ -76,6 +85,8 @@ export function applyAction(editor: Editor, action: Action, speakers: Registry) 
 		}
 		case 'create_decision_card': {
 			const layout = resolveLayout(action.layout, existing, {
+				actionType: action.type,
+				existingByType,
 				defaultW: 320,
 				defaultH: 160,
 			})
@@ -123,6 +134,8 @@ export function applyAction(editor: Editor, action: Action, speakers: Registry) 
 		}
 		case 'create_commitment_card': {
 			const layout = resolveLayout(action.layout, existing, {
+				actionType: action.type,
+				existingByType,
 				defaultW: 280,
 				defaultH: 120,
 			})
@@ -148,6 +161,8 @@ export function applyAction(editor: Editor, action: Action, speakers: Registry) 
 		}
 		case 'create_blocker_card': {
 			const layout = resolveLayout(action.layout, existing, {
+				actionType: action.type,
+				existingByType,
 				defaultW: 280,
 				defaultH: 100,
 			})
@@ -162,6 +177,8 @@ export function applyAction(editor: Editor, action: Action, speakers: Registry) 
 		}
 		case 'create_question_card': {
 			const layout = resolveLayout(action.layout, existing, {
+				actionType: action.type,
+				existingByType,
 				defaultW: 280,
 				defaultH: 100,
 			})
@@ -203,6 +220,11 @@ export function applyAction(editor: Editor, action: Action, speakers: Registry) 
 				props: {
 					// biome-ignore lint/suspicious/noExplicitAny: tldraw arrow color is a string literal enum
 					color: (linkColor[action.kind] ?? 'grey') as any,
+					// `elbow` = right-angle routing that snaps to shape edges and
+					// navigates around obstacles. The default (`arc` with bend: 0
+					// = straight line) ends up criss-crossing other cards and
+					// makes dense canvases unreadable.
+					kind: 'elbow',
 					start: { x: 0, y: 0 },
 					end: { x: 100, y: 0 },
 					text: action.label ?? action.kind,
@@ -248,8 +270,11 @@ export function applyAction(editor: Editor, action: Action, speakers: Registry) 
 		}
 		case 'group_into_frame': {
 			const layout = resolveLayout(undefined, existing, {
+				actionType: action.type,
+				existingByType,
 				defaultW: 600,
 				defaultH: 400,
+				gap: 80,
 			})
 			const frameId = createShapeId()
 			editor.createShape({
@@ -281,6 +306,8 @@ export function applyAction(editor: Editor, action: Action, speakers: Registry) 
 		}
 		case 'create_priority_matrix': {
 			const layout = resolveLayout(action.layout, existing, {
+				actionType: action.type,
+				existingByType,
 				defaultW: 420,
 				defaultH: 380,
 			})
@@ -295,6 +322,8 @@ export function applyAction(editor: Editor, action: Action, speakers: Registry) 
 		}
 		case 'create_budget_allocator': {
 			const layout = resolveLayout(action.layout, existing, {
+				actionType: action.type,
+				existingByType,
 				defaultW: 380,
 				defaultH: 240,
 			})
