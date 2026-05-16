@@ -61,88 +61,93 @@ export default function Home() {
 
 			{/* ── §1 · HERO ──────────────────────────────────────────────── */}
 			<section className="max-w-[1200px] mx-auto px-8 pt-24 pb-16 stagger-1">
-				<div className="grid grid-cols-12 gap-10 items-center">
-					<div className="col-span-12 lg:col-span-7">
-						<div className="font-mono text-[10px] uppercase tracking-[0.22em] text-faded-ink mb-8">
-							No. 01 · Milan AI Week 2026
-						</div>
-						<h1
-							className="font-display font-light text-ink"
-							style={{
-								fontSize: 'clamp(48px, 6.4vw, 88px)',
-								lineHeight: 0.98,
-								letterSpacing: '-0.02em',
-							}}
-						>
-							Your meeting,
-							<br />
-							<em className="font-display italic">as a canvas</em>.
-						</h1>
-						<p className="mt-9 max-w-[540px] text-[19px] leading-[1.55] text-ink font-sans">
-							Talk through your meeting. Watch the canvas build itself —
-							cards for every decision, action item and blocker, drawn
-							live as you speak. Then keep shaping it by voice or chat.
-						</p>
-						<div className="mt-10 flex flex-wrap gap-3 items-center">
-							<Show when="signed-out">
-								<Link href="/sign-up" className="cta-primary group">
-									<span className="cta-bar" aria-hidden="true" />
-									<span>Start your canvas — free</span>
-								</Link>
-								<Link href="/sign-in" className="cta-secondary">
-									<span>Sign in</span>
-								</Link>
-							</Show>
-							<Show when="signed-in">
-								<Link href="/dashboard" className="cta-primary group">
-									<span className="cta-bar" aria-hidden="true" />
-									<span>Open dashboard</span>
-								</Link>
-							</Show>
-						</div>
-						<div className="mt-5 font-mono text-[11px] uppercase tracking-[0.18em] text-faded-ink">
-							Free during beta · no credit card · ~30s to your first card
-						</div>
+				{/*
+				 * Hero text block first — narrower so the rag stays editorial.
+				 * The video below it is the centerpiece; this is the
+				 * orientation copy that frames it.
+				 */}
+				<div className="max-w-[920px]">
+					<div className="font-mono text-[10px] uppercase tracking-[0.22em] text-faded-ink mb-8">
+						No. 01 · Milan AI Week 2026
 					</div>
-					<div className="col-span-12 lg:col-span-5">
-						{/*
-						 * Hero motion — autoplay-muted-loop video of the actual
-						 * product flow. Lives in the hero so first impression
-						 * is movement, not a still. Paper-framed to match the
-						 * page's material.
-						 *
-						 * preload="metadata" keeps the initial-paint payload
-						 * tiny; the full video streams in once layout settles.
-						 */}
-						<div
-							className="relative w-full overflow-hidden rounded-sm border border-hairline bg-paper"
-							style={{
-								boxShadow: '0 24px 60px -32px rgba(26,24,21,0.30)',
-								aspectRatio: '16 / 9',
-							}}
-						>
-							<video
-								className="w-full h-full block object-cover"
-								src="/hero.mp4"
-								poster="/hero-poster.jpg"
-								autoPlay
-								muted
-								loop
-								playsInline
-								preload="metadata"
-							>
-								<track kind="captions" />
-							</video>
-							<div
-								className="absolute inset-0 pointer-events-none"
-								style={{
-									boxShadow:
-										'inset 0 0 0 1px rgba(26,24,21,0.04), inset 0 0 120px rgba(26,24,21,0.04)',
-								}}
-							/>
-						</div>
+					<h1
+						className="font-display font-light text-ink"
+						style={{
+							fontSize: 'clamp(48px, 7vw, 96px)',
+							lineHeight: 0.98,
+							letterSpacing: '-0.02em',
+						}}
+					>
+						Your meeting,{' '}
+						<em className="font-display italic">as a canvas</em>.
+					</h1>
+					<p className="mt-9 max-w-[620px] text-[19px] leading-[1.55] text-ink font-sans">
+						Talk through your meeting. Watch the canvas build itself —
+						cards for every decision, action item and blocker, drawn
+						live as you speak. Then keep shaping it by voice or chat.
+					</p>
+					<div className="mt-10 flex flex-wrap gap-3 items-center">
+						<Show when="signed-out">
+							<Link href="/sign-up" className="cta-primary group">
+								<span className="cta-bar" aria-hidden="true" />
+								<span>Start your canvas — free</span>
+							</Link>
+							<Link href="/sign-in" className="cta-secondary">
+								<span>Sign in</span>
+							</Link>
+						</Show>
+						<Show when="signed-in">
+							<Link href="/dashboard" className="cta-primary group">
+								<span className="cta-bar" aria-hidden="true" />
+								<span>Open dashboard</span>
+							</Link>
+						</Show>
+					</div>
+					<div className="mt-5 font-mono text-[11px] uppercase tracking-[0.18em] text-faded-ink">
+						Free during beta · no credit card · ~30s to your first card
 					</div>
 				</div>
+
+				{/*
+				 * Hero motion — autoplay-muted-loop video at FULL container
+				 * width (1200px), 16:9 = 675px tall. Large enough that the
+				 * in-canvas transcript and card details read cleanly. Lives
+				 * directly under the headline so first scroll lands on it.
+				 *
+				 * preload="metadata" keeps the initial-paint payload tiny;
+				 * the full video streams in once layout settles.
+				 */}
+				<div
+					className="mt-16 relative w-full overflow-hidden rounded-sm border border-hairline bg-paper"
+					style={{
+						boxShadow: '0 32px 80px -28px rgba(26,24,21,0.35)',
+						aspectRatio: '16 / 9',
+					}}
+				>
+					<video
+						className="w-full h-full block object-cover"
+						src="/hero.mp4"
+						poster="/hero-poster.jpg"
+						autoPlay
+						muted
+						loop
+						playsInline
+						preload="metadata"
+					>
+						<track kind="captions" />
+					</video>
+					<div
+						className="absolute inset-0 pointer-events-none"
+						style={{
+							boxShadow:
+								'inset 0 0 0 1px rgba(26,24,21,0.04), inset 0 0 140px rgba(26,24,21,0.04)',
+						}}
+					/>
+				</div>
+				<div className="mt-4 font-mono text-[11px] uppercase tracking-[0.18em] text-faded-ink">
+					A staged 90-second demo · plays muted on loop
+				</div>
+
 				{/* Scroll cue — subtle "↓" with caption, signals more below */}
 				<div className="mt-20 flex flex-col items-center gap-2 hero-scroll-cue">
 					<span className="font-mono text-[10px] uppercase tracking-[0.22em] text-faded-ink">
