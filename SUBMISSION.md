@@ -54,11 +54,11 @@ Productivity, AI Agents, Voice AI, Collaboration, Knowledge Management
 
 ### Cover Image
 
-File: `public/cover.jpg` (1920×1080, 88 KB)
+File: `public/banner.jpg` (1920×1080, 88 KB)
 
 Direct URL after push:
 ```
-https://github.com/aravindsriraj/conversation-canvas/raw/main/public/cover.jpg
+https://github.com/aravindsriraj/conversation-canvas/raw/main/public/banner.jpg
 ```
 
 ### Video Presentation

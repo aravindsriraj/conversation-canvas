@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="public/cover.jpg" alt="Conversation Canvas — a meeting captured as a structured canvas with cards and arrows" width="100%" />
+  <img src="public/banner.jpg" alt="Conversation Canvas — a meeting captured as a structured canvas with cards and arrows" width="100%" />
 </div>
 
 # Conversation Canvas
@@ -152,7 +152,7 @@ conversation-canvas/
 │   └── registry-singleton.ts      # globalThis-shared between Next routes + custom server
 └── public/
     ├── hero.mp4                   # 90s product demo (Remotion-rendered)
-    ├── cover.jpg                  # Hero still
+    ├── banner.jpg                 # Branded social-card hero
     └── pitch-deck.pptx            # Pitch deck
 ```
 
