@@ -54,12 +54,17 @@ Productivity, AI Agents, Voice AI, Collaboration, Knowledge Management
 
 ### Cover Image
 
-File: `public/banner.jpg` (1920×1080, 88 KB)
+File: `public/lablab-cover.jpg` (1920×1080, 16:9, 93 KB) — branded
+social-card cover, same composition as the GitHub README banner but
+sized for lablab's 16:9 cover-image slot.
 
 Direct URL after push:
 ```
-https://github.com/aravindsriraj/conversation-canvas/raw/main/public/banner.jpg
+https://github.com/aravindsriraj/conversation-canvas/raw/main/public/lablab-cover.jpg
 ```
+
+(The GitHub README banner at `public/banner.jpg` is the same artwork
+at 2:1 — use whichever the upload widget prefers.)
 
 ### Video Presentation
 
