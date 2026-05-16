@@ -196,59 +196,132 @@ export default function Home() {
 				</div>
 			</section>
 
-			{/* ── §4 · ON YOUR CANVAS (card grid) ────────────────────────── */}
+			{/* ── §4 · ON YOUR CANVAS (two tiers) ────────────────────────── */}
 			<section className="border-t border-hairline stagger-4">
 				<div className="max-w-[1200px] mx-auto px-8 py-24">
 					<div className="font-mono text-[10px] uppercase tracking-[0.22em] text-faded-ink mb-8">
-						§ III · On your canvas
+						§ III · What ends up on your canvas
 					</div>
-					<h2 className="font-display text-[48px] sm:text-[64px] leading-[1.02] tracking-tight text-ink max-w-[900px] mb-4">
-						Six kinds of cards. One coherent story.
+					<h2 className="font-display text-[48px] sm:text-[64px] leading-[1.02] tracking-tight text-ink max-w-[1000px] mb-4">
+						Everything a whiteboard could be — and then some.
 					</h2>
-					<p className="font-sans text-[18px] leading-[1.5] text-faded-ink max-w-[760px] mb-16">
-						Each card type carries its own visual weight, so the
-						canvas reads top-to-bottom as the meeting unfolded.
+					<p className="font-sans text-[18px] leading-[1.5] text-faded-ink max-w-[760px]">
+						The meeting cards write themselves from what you say.
+						Anything else — diagrams, sticky notes, priority
+						matrices, budget splits — you can just ask for.
 					</p>
 
-					<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-						<CardPreview
-							kind="proposal"
-							label="Ideas being considered"
-							body="Target enterprise customers in Q3; focus on the top 100 accounts."
-							caption="Proposals"
-						/>
-						<CardPreview
-							kind="decision"
-							label="What you decided"
-							body="Adopt SMB-focused GTM for Q3. Revisit enterprise in Q4."
-							caption="Decisions"
-							locked
-						/>
-						<CardPreview
-							kind="commitment"
-							label="Who's doing what"
-							body="Own the SMB outreach plan."
-							meta="Alice · by next Friday"
-							caption="Commitments"
-						/>
-						<CardPreview
-							kind="blocker"
-							label="What's in the way"
-							body="Legal review hasn't cleared yet."
-							caption="Blockers"
-						/>
-						<CardPreview
-							kind="question"
-							label="Worth revisiting"
-							body="Realistic timeline if legal clears next week?"
-							caption="Open questions"
-						/>
-						<CardPreview
-							kind="note"
-							label=""
-							body="Post-Q3 retro · review what worked"
-							caption="Free-form notes"
-						/>
+					{/* ── Tier A — automatic from conversation ─────────────── */}
+					<div className="mt-16">
+						<div className="flex items-baseline gap-3 mb-8">
+							<span className="font-mono text-[10px] uppercase tracking-[0.22em] text-olive">
+								§ A
+							</span>
+							<span className="font-display text-[18px] uppercase tracking-[0.22em] text-ink">
+								Automatic — from your conversation
+							</span>
+						</div>
+						<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+							<CardPreview
+								kind="proposal"
+								label="Ideas being considered"
+								body="Target enterprise customers in Q3; focus on the top 100 accounts."
+								caption="Proposals"
+							/>
+							<CardPreview
+								kind="decision"
+								label="What you decided"
+								body="Adopt SMB-focused GTM for Q3. Revisit enterprise in Q4."
+								caption="Decisions"
+								locked
+							/>
+							<CardPreview
+								kind="commitment"
+								label="Who's doing what"
+								body="Own the SMB outreach plan."
+								meta="Alice · by next Friday"
+								caption="Commitments"
+							/>
+							<CardPreview
+								kind="blocker"
+								label="What's in the way"
+								body="Legal review hasn't cleared yet."
+								caption="Blockers"
+							/>
+							<CardPreview
+								kind="question"
+								label="Worth revisiting"
+								body="Realistic timeline if legal clears next week?"
+								caption="Open questions"
+							/>
+							<CardPreview
+								kind="proposal"
+								label="And the relationships between them"
+								body={"Proposal → decision, decision → commitment, blocker → what it blocks. Drawn for you, as you speak."}
+								caption="Connecting arrows"
+							/>
+						</div>
+					</div>
+
+					{/* ── Tier B — on request, by voice or chat ─────────────── */}
+					<div className="mt-20">
+						<div className="flex items-baseline gap-3 mb-8">
+							<span className="font-mono text-[10px] uppercase tracking-[0.22em] text-ochre">
+								§ B
+							</span>
+							<span className="font-display text-[18px] uppercase tracking-[0.22em] text-ink">
+								On request — by voice or chat
+							</span>
+						</div>
+						<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-x-8 gap-y-12">
+							<OnRequestPreview
+								caption="Free-form notes"
+								prompt="“Add a yellow sticky for the post-Q3 review.”"
+							>
+								<div className="flex justify-center">
+									<div
+										className="aspect-square w-[180px] flex items-center justify-center text-center p-4"
+										style={{
+											background: '#f7e08a',
+											transform: 'rotate(-1.5deg)',
+											boxShadow:
+												'0 1px 0 rgba(26,24,21,0.08), 0 12px 28px -14px rgba(26,24,21,0.30)',
+										}}
+									>
+										<span className="font-display italic text-ink text-[17px] leading-[1.3] font-medium">
+											Post-Q3 review
+										</span>
+									</div>
+								</div>
+							</OnRequestPreview>
+
+							<OnRequestPreview
+								caption="Diagrams & shapes"
+								prompt="“Draw a flowchart from the title to the launch.”"
+							>
+								<ShapesPreview />
+							</OnRequestPreview>
+
+							<OnRequestPreview
+								caption="When ranking matters"
+								prompt="“Rank these by impact and effort.”"
+							>
+								<MatrixPreview />
+							</OnRequestPreview>
+
+							<OnRequestPreview
+								caption="When splitting matters"
+								prompt="“Split the budget 60/30/10.”"
+							>
+								<BudgetPreview />
+							</OnRequestPreview>
+						</div>
+
+						<p className="mt-12 font-sans text-[16px] leading-[1.55] text-faded-ink max-w-[760px] italic">
+							Plus the small motions — move, recolor, align,
+							resize, delete, focus, group, lock. Anything you'd
+							do with the mouse, you can do by asking.
+						</p>
 					</div>
 				</div>
 			</section>
@@ -555,6 +628,236 @@ function CardPreview({
 					</div>
 				)}
 			</div>
+		</div>
+	)
+}
+
+/*
+ * OnRequestPreview — wraps a visual demo with a caption + a quoted prompt
+ * showing the kind of phrasing that produces this output. The prompt is in
+ * mono with quote marks to read as "the user said this and the canvas did
+ * that" — concrete, scannable, and ties the abstract capability to a real
+ * sentence someone would actually speak or type.
+ */
+function OnRequestPreview({
+	caption,
+	prompt,
+	children,
+}: {
+	caption: string
+	prompt: string
+	children: React.ReactNode
+}) {
+	return (
+		<div className="flex flex-col gap-5">
+			<div className="font-display text-[11px] uppercase tracking-[0.22em] text-faded-ink">
+				{caption}
+			</div>
+			<div
+				className="relative w-full p-8 border border-hairline rounded-sm bg-paper"
+				style={{
+					minHeight: 240,
+					boxShadow:
+						'0 1px 0 rgba(26,24,21,0.04), 0 12px 28px -16px rgba(26,24,21,0.18)',
+				}}
+			>
+				<div className="flex items-center justify-center min-h-[200px]">
+					{children}
+				</div>
+			</div>
+			<div className="flex items-start gap-3">
+				<span className="font-mono text-[10px] uppercase tracking-[0.22em] text-ochre mt-1 shrink-0">
+					Ask
+				</span>
+				<span className="font-mono text-[14px] leading-[1.5] text-ink">
+					{prompt}
+				</span>
+			</div>
+		</div>
+	)
+}
+
+/*
+ * ShapesPreview — a small canvas-like sketch showing a flowchart built
+ * from tldraw's geo shapes + arrows. Communicates "you can ask for
+ * diagrams" without being literal about the shape vocabulary.
+ */
+function ShapesPreview() {
+	return (
+		<svg
+			viewBox="0 0 360 200"
+			className="w-full max-w-[360px] h-auto"
+			role="img"
+			aria-label="A flowchart with a rectangle, ellipse, and diamond connected by arrows"
+		>
+			<title>Flowchart with shapes and arrows</title>
+			{/* Rectangle (left) */}
+			<rect
+				x={10}
+				y={70}
+				width={90}
+				height={60}
+				fill="rgba(26,24,21,0.04)"
+				stroke="var(--color-ink, #1a1815)"
+				strokeWidth={1.5}
+				rx={2}
+			/>
+			<text
+				x={55}
+				y={105}
+				textAnchor="middle"
+				fontFamily="var(--font-display)"
+				fontSize={14}
+				fill="var(--color-ink, #1a1815)"
+			>
+				Idea
+			</text>
+			{/* Arrow to ellipse */}
+			<line x1={100} y1={100} x2={140} y2={100} stroke="var(--color-faded-ink, #a09583)" strokeWidth={1.5} />
+			<polygon
+				points="140,100 132,96 132,104"
+				fill="var(--color-faded-ink, #a09583)"
+			/>
+			{/* Ellipse (middle) */}
+			<ellipse
+				cx={195}
+				cy={100}
+				rx={55}
+				ry={36}
+				fill="rgba(46,83,55,0.06)"
+				stroke="var(--color-olive, #2e5337)"
+				strokeWidth={1.5}
+			/>
+			<text
+				x={195}
+				y={105}
+				textAnchor="middle"
+				fontFamily="var(--font-display)"
+				fontSize={14}
+				fill="var(--color-olive, #2e5337)"
+			>
+				Build
+			</text>
+			{/* Arrow to diamond */}
+			<line x1={250} y1={100} x2={290} y2={100} stroke="var(--color-faded-ink, #a09583)" strokeWidth={1.5} />
+			<polygon
+				points="290,100 282,96 282,104"
+				fill="var(--color-faded-ink, #a09583)"
+			/>
+			{/* Diamond (right) */}
+			<polygon
+				points="335,70 360,100 335,130 310,100"
+				fill="rgba(198,134,43,0.08)"
+				stroke="var(--color-ochre, #c6862b)"
+				strokeWidth={1.5}
+			/>
+			<text
+				x={335}
+				y={105}
+				textAnchor="middle"
+				fontFamily="var(--font-display)"
+				fontSize={13}
+				fill="var(--color-ochre, #c6862b)"
+			>
+				Ship
+			</text>
+			{/* Tiny callout sticky in corner */}
+			<g transform="translate(20 10) rotate(-3)">
+				<rect width={60} height={36} fill="#f7e08a" stroke="rgba(26,24,21,0.08)" strokeWidth={0.5} />
+				<text
+					x={30}
+					y={22}
+					textAnchor="middle"
+					fontFamily="var(--font-display)"
+					fontStyle="italic"
+					fontSize={11}
+					fill="var(--color-ink, #1a1815)"
+				>
+					note
+				</text>
+			</g>
+		</svg>
+	)
+}
+
+/*
+ * MatrixPreview — small 2-D impact/effort grid with 4 dots in the four
+ * quadrants. Doesn't say "matrix" anywhere; the grid + axis labels speak
+ * for themselves.
+ */
+function MatrixPreview() {
+	return (
+		<svg
+			viewBox="0 0 320 220"
+			className="w-full max-w-[320px] h-auto"
+			role="img"
+			aria-label="A priority matrix with four items plotted by impact and effort"
+		>
+			<title>Priority matrix</title>
+			<g transform="translate(40 20)">
+				<rect width={260} height={160} fill="rgba(26,24,21,0.02)" stroke="var(--color-hairline, #dcd3c0)" strokeWidth={1} />
+				<line x1={130} y1={0} x2={130} y2={160} stroke="var(--color-hairline, #dcd3c0)" strokeWidth={1} />
+				<line x1={0} y1={80} x2={260} y2={80} stroke="var(--color-hairline, #dcd3c0)" strokeWidth={1} />
+				{/* Dots */}
+				<circle cx={70} cy={40} r={7} fill="var(--color-olive, #2e5337)" />
+				<circle cx={195} cy={50} r={7} fill="var(--color-ink, #1a1815)" />
+				<circle cx={55} cy={120} r={7} fill="var(--color-ochre, #c6862b)" />
+				<circle cx={210} cy={130} r={7} fill="var(--color-faded-ink, #a09583)" />
+			</g>
+			{/* Axis labels */}
+			<text
+				x={170}
+				y={210}
+				textAnchor="middle"
+				fontFamily="var(--font-mono)"
+				fontSize={10}
+				letterSpacing={1.5}
+				fill="var(--color-faded-ink, #a09583)"
+			>
+				← EFFORT →
+			</text>
+			<text
+				x={20}
+				y={110}
+				transform="rotate(-90 20 110)"
+				textAnchor="middle"
+				fontFamily="var(--font-mono)"
+				fontSize={10}
+				letterSpacing={1.5}
+				fill="var(--color-faded-ink, #a09583)"
+			>
+				← IMPACT →
+			</text>
+		</svg>
+	)
+}
+
+/*
+ * BudgetPreview — three horizontal bars summing to 100. Visual stand-in
+ * for the budget allocator widget without the chart-junk of a real one.
+ */
+function BudgetPreview() {
+	const rows = [
+		{ label: 'Enterprise', pct: 60, color: 'var(--color-olive, #2e5337)' },
+		{ label: 'SMB', pct: 30, color: 'var(--color-ochre, #c6862b)' },
+		{ label: 'Retention', pct: 10, color: 'var(--color-crimson, #b82626)' },
+	]
+	return (
+		<div className="w-full max-w-[320px] flex flex-col gap-3">
+			{rows.map((r) => (
+				<div key={r.label}>
+					<div className="flex justify-between text-[13px] font-sans text-ink mb-1">
+						<span>{r.label}</span>
+						<span className="font-mono text-faded-ink">{r.pct}%</span>
+					</div>
+					<div className="h-2 bg-[rgba(26,24,21,0.05)] rounded-full overflow-hidden">
+						<div
+							className="h-full rounded-full"
+							style={{ width: `${r.pct}%`, background: r.color }}
+						/>
+					</div>
+				</div>
+			))}
 		</div>
 	)
 }
