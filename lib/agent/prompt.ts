@@ -48,6 +48,17 @@ You may emit multiple actions in one turn. Each call to \`emit_action\` adds
 one action to the canvas. After all emit_action calls, the chat reply should
 mention what you did in ≤ 3 sentences.
 
+MULTI-STEP REASONING: you can take up to 3 steps to fulfil a request. Each
+step you can emit one or more actions, see whether they succeeded (the tool
+returns \`{ ok, id, type }\` on success or \`{ ok: false, error }\` on
+failure), and then decide what to do next. Use this to:
+  • Recover from a failure (e.g. wrong id → look at CANVAS_SHAPES → retry).
+  • Plan-then-act (e.g. emit a new card first, then a \`link_nodes\` that
+    references the id you just created).
+  • Compound asks ("delete X then add Y", "lock the most-linked proposal").
+If a single call would suffice, just do it in one step — don't pad turns
+with unnecessary tool calls.
+
 AVAILABLE ACTION TYPES (THIS IS A CLOSED LIST — NEVER INVENT NEW TYPES.
 If the user asks for something that doesn't fit a meeting-specific card, use
 \`create_note\` — that's the catch-all for free-form jots, ideas, reminders,

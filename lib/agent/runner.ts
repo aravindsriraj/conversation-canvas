@@ -75,18 +75,44 @@ export async function* runAgentTurn(
 					'A single Action object — one of the documented action types (create_proposal_card / create_decision_card / create_commitment_card / create_blocker_card / create_question_card / create_note / create_priority_matrix / create_budget_allocator / link_nodes / lock_decision / update_card / group_into_frame). Must include `id` (or `from`/`to` for link_nodes) and all required fields for that type. NEVER invent a new type — for free-form jots / boxes / sticky notes use create_note.',
 				),
 		}),
-		// We declare `execute` so the AI SDK can carry the tool through its
-		// multi-step loop. The actual side effect (recording + broadcasting)
-		// happens in the dispatcher loop below — `execute` here just echoes
-		// back a small confirmation so Gemini can see "the action landed".
-		// We do NOT do the side effect inside execute() because we want it
-		// gated by Zod validation and dedup, both of which want access to the
-		// already-emitted actions in this turn.
+		// `execute` runs the full dispatch pipeline (normalize → infer →
+		// validate → recordAction → broadcast) and returns an INFORMATIVE
+		// result so the model can self-correct on subsequent steps.
+		//
+		// Why moved inside execute (was previously outside in the stream
+		// loop): now that stopWhen allows multiple steps, the model needs
+		// to SEE what happened to its last call before deciding the next
+		// one. The SDK feeds each tool-result back into the model context
+		// before the next step, so `execute`'s return value becomes part
+		// of the model's reasoning state.
+		//
+		// `try/catch` is mandatory: a throw here would abort the step
+		// entirely (SDK behavior). On any failure we return ok:false +
+		// the error string so the model sees "that didn't work" and can
+		// adapt instead of the whole turn dying.
 		execute: async ({ action }) => {
-			// Best-effort echo: the dispatcher loop will set this to a real
-			// status. Returning a plain object keeps Gemini's tool-result
-			// reasoning unambiguous.
-			return { ok: true, type: (action as { type?: string })?.type ?? 'unknown' }
+			try {
+				const dispatched = dispatchAction(room, action)
+				if (dispatched.ok) {
+					return {
+						ok: true as const,
+						action: dispatched.action,
+						id:
+							'id' in dispatched.action
+								? dispatched.action.id
+								: undefined,
+						type: dispatched.action.type,
+					}
+				}
+				return { ok: false as const, error: dispatched.error }
+			} catch (err) {
+				const message =
+					err instanceof Error
+						? err.message
+						: 'dispatch threw an unknown error'
+				console.error('[agent] emit_action.execute threw:', message)
+				return { ok: false as const, error: message }
+			}
 		},
 	})
 
@@ -102,40 +128,53 @@ export async function* runAgentTurn(
 			prompt: userPrompt,
 			temperature: 0.3,
 			tools: { emit_action: emitAction },
-			// Cap the agent at a single step. We don't want it bouncing tool
-			// calls back-and-forth — one pass of "here are all the actions +
-			// chat reply", then done. stepCountIs(1) keeps it bounded.
-			stopWhen: stepCountIs(1),
+			// stepCountIs(3) lets the model plan → emit → observe → adjust.
+			// At step 1 it sees the tool-result from each emit (success or
+			// error), so on step 2 it can recover (e.g. "that id didn't
+			// exist; let me create it first"). 3 is enough for compound
+			// asks like "delete X then add Y" without runaway loops. The
+			// Vercel-ai-architect agent recommended this cap as the
+			// lowest-risk high-value change in this codebase before a
+			// full ToolLoopAgent migration.
+			stopWhen: stepCountIs(3),
 		})
 
-		const seenToolCalls = new Set<string>()
+		let toolResults = 0
 
 		for await (const part of result.fullStream) {
 			if (part.type === 'text-delta') {
 				yield { kind: 'text', delta: part.text }
 				continue
 			}
-			if (part.type === 'tool-call') {
-				// dynamic / static distinction doesn't matter to us — we
-				// receive the parsed input either way.
-				if (seenToolCalls.has(part.toolCallId)) continue
-				seenToolCalls.add(part.toolCallId)
-				// biome-ignore lint/suspicious/noExplicitAny: tool input is unknown by design (see emit_action schema rationale)
-				const input = part.input as any
-				const rawAction = input?.action
-				if (!rawAction) {
+			if (part.type === 'tool-result') {
+				// Dispatch already ran inside `execute`; the output tells us
+				// whether to emit an action chip or an error to the panel.
+				// biome-ignore lint/suspicious/noExplicitAny: output shape is the union returned from execute() above
+				const out = part.output as any
+				toolResults += 1
+				if (out?.ok && out.action) {
+					yield { kind: 'action', action: out.action }
+				} else if (out && out.ok === false) {
 					yield {
 						kind: 'error',
-						message: 'tool call missing `action` field',
+						message: out.error ?? 'dispatch failed',
 					}
-					continue
 				}
-				const dispatched = dispatchAction(room, rawAction)
-				if (dispatched.ok) {
-					yield { kind: 'action', action: dispatched.action }
-				} else {
-					yield { kind: 'error', message: dispatched.error }
-				}
+				continue
+			}
+			if (part.type === 'tool-error') {
+				// The SDK couldn't even call execute (e.g., bad inputSchema
+				// match). Surface to the user so it's not a silent drop.
+				// biome-ignore lint/suspicious/noExplicitAny: tool-error shape varies; we just want the message
+				const err = part as any
+				const message =
+					err.error instanceof Error
+						? err.error.message
+						: typeof err.error === 'string'
+							? err.error
+							: 'tool invocation failed'
+				console.warn('[agent] tool-error:', message)
+				yield { kind: 'error', message }
 				continue
 			}
 			if (part.type === 'error') {
@@ -147,12 +186,13 @@ export async function* runAgentTurn(
 				yield { kind: 'error', message: msg }
 				continue
 			}
-			// other parts (start, finish, tool-input-* deltas, etc.) are
-			// ignored — they don't change the client-visible state.
+			// Other parts (start, finish, tool-input-* deltas, tool-call,
+			// etc.) are intentionally ignored — they don't change client
+			// state. We render off tool-result now, not tool-call.
 		}
 
 		console.log(
-			`[agent] turn done in ${Date.now() - startedAt}ms; tool calls: ${seenToolCalls.size}`,
+			`[agent] turn done in ${Date.now() - startedAt}ms; tool results: ${toolResults}`,
 		)
 		yield { kind: 'done' }
 	} catch (err) {
