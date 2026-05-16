@@ -157,13 +157,3 @@ conversation-canvas/
 ```
 
 ---
-
-## Credits
-
-Built solo by **[Aravindan Sriraj](https://github.com/aravindsriraj)** for Milan AI Week 2026.
-
-Color palette and typography (Scriptorium — paper / ink / olive / crimson / ochre, Fraunces / IBM Plex Sans / JetBrains Mono) handpicked to read as an editorial publication rather than a generic AI app.
-
-## License
-
-Released without a formal license at this stage — reach out if you'd like to use any of it.
