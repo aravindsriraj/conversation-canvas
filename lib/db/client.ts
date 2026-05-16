@@ -42,7 +42,13 @@ function buildClient() {
 		// Neon's pooler closes idle connections aggressively; mirror that
 		// here so we don't try to reuse a dead one.
 		idle_timeout: 20,
-		connect_timeout: 10,
+		// Bumped to 30s (was 10s) to cover Neon's free-tier cold-start
+		// path: the compute auto-suspends after ~5 min idle, and the
+		// next connection has to wait for it to boot back up. 5–15s is
+		// typical; 30s is comfortable headroom. Without this, the first
+		// request after an idle period times out and the user sees
+		// "This page couldn't load. A server error occurred."
+		connect_timeout: 30,
 	})
 }
 
