@@ -31,18 +31,36 @@ export default function Home() {
 							Conversation Canvas
 						</span>
 					</div>
-					<div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.18em] text-faded-ink">
-						<span
-							className="w-1.5 h-1.5 bg-crimson rounded-full live-pulse"
-							aria-hidden="true"
-						/>
-						<span>Live</span>
+					<div className="flex items-center gap-5">
+						<div className="hidden sm:flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.18em] text-faded-ink">
+							<span
+								className="w-1.5 h-1.5 bg-crimson rounded-full live-pulse"
+								aria-hidden="true"
+							/>
+							<span>Live</span>
+						</div>
+						<Show when="signed-out">
+							<Link
+								href="/sign-up"
+								className="font-display text-[11px] uppercase tracking-[0.18em] text-ink border-b border-hairline hover:border-ink pb-0.5 transition-colors"
+							>
+								Sign up →
+							</Link>
+						</Show>
+						<Show when="signed-in">
+							<Link
+								href="/dashboard"
+								className="font-display text-[11px] uppercase tracking-[0.18em] text-ink border-b border-hairline hover:border-ink pb-0.5 transition-colors"
+							>
+								Dashboard →
+							</Link>
+						</Show>
 					</div>
 				</div>
 			</header>
 
 			{/* ── §1 · HERO ──────────────────────────────────────────────── */}
-			<section className="max-w-[1200px] mx-auto px-8 pt-24 pb-24 stagger-1">
+			<section className="max-w-[1200px] mx-auto px-8 pt-24 pb-16 stagger-1">
 				<div className="grid grid-cols-12 gap-10 items-center">
 					<div className="col-span-12 lg:col-span-7">
 						<div className="font-mono text-[10px] uppercase tracking-[0.22em] text-faded-ink mb-8">
@@ -60,11 +78,12 @@ export default function Home() {
 							<br />
 							<em className="font-display italic">as a canvas</em>.
 						</h1>
-						<p className="mt-9 max-w-[520px] text-[18px] leading-[1.55] text-faded-ink font-sans">
-							Decisions, action items and blockers organize themselves
-							while you talk. Shape it further by voice or chat.
+						<p className="mt-9 max-w-[540px] text-[19px] leading-[1.55] text-ink font-sans">
+							Talk through your meeting. Watch the canvas build itself —
+							cards for every decision, action item and blocker, drawn
+							live as you speak. Then keep shaping it by voice or chat.
 						</p>
-						<div className="mt-10 flex flex-wrap gap-3">
+						<div className="mt-10 flex flex-wrap gap-3 items-center">
 							<Show when="signed-out">
 								<Link href="/sign-up" className="cta-primary group">
 									<span className="cta-bar" aria-hidden="true" />
@@ -81,29 +100,39 @@ export default function Home() {
 								</Link>
 							</Show>
 						</div>
+						<div className="mt-5 font-mono text-[11px] uppercase tracking-[0.18em] text-faded-ink">
+							Free during beta · no credit card · ~30s to your first card
+						</div>
 					</div>
 					<div className="col-span-12 lg:col-span-5">
 						{/*
-						 * Static hero visual — a still from the rendered video.
-						 * The full motion lives in §5. The poster reads as a
-						 * promise: "this is what your canvas looks like." A
-						 * paper frame around it ties it to the page's
-						 * material rather than feeling like a separate slot.
+						 * Hero motion — autoplay-muted-loop video of the actual
+						 * product flow. Lives in the hero so first impression
+						 * is movement, not a still. Paper-framed to match the
+						 * page's material.
+						 *
+						 * preload="metadata" keeps the initial-paint payload
+						 * tiny; the full video streams in once layout settles.
 						 */}
 						<div
-							className="relative w-full overflow-hidden rounded-sm border border-hairline"
+							className="relative w-full overflow-hidden rounded-sm border border-hairline bg-paper"
 							style={{
 								boxShadow: '0 24px 60px -32px rgba(26,24,21,0.30)',
 								aspectRatio: '16 / 9',
 							}}
 						>
-							<picture>
-								<img
-									alt="A canvas mid-meeting — proposals, a decision, a commitment, blockers and connecting arrows"
-									src="/hero-poster.jpg"
-									className="w-full h-full object-cover"
-								/>
-							</picture>
+							<video
+								className="w-full h-full block object-cover"
+								src="/hero.mp4"
+								poster="/hero-poster.jpg"
+								autoPlay
+								muted
+								loop
+								playsInline
+								preload="metadata"
+							>
+								<track kind="captions" />
+							</video>
 							<div
 								className="absolute inset-0 pointer-events-none"
 								style={{
@@ -114,39 +143,56 @@ export default function Home() {
 						</div>
 					</div>
 				</div>
+				{/* Scroll cue — subtle "↓" with caption, signals more below */}
+				<div className="mt-20 flex flex-col items-center gap-2 hero-scroll-cue">
+					<span className="font-mono text-[10px] uppercase tracking-[0.22em] text-faded-ink">
+						Read on
+					</span>
+					<span className="font-mono text-[14px] text-faded-ink">↓</span>
+				</div>
 			</section>
 
-			{/* ── §2 · PROBLEM ──────────────────────────────────────────── */}
+			{/* ── §2 · PROBLEM (as voices) ──────────────────────────────── */}
 			<section className="border-t border-hairline stagger-2">
 				<div className="max-w-[1200px] mx-auto px-8 py-24">
 					<div className="font-mono text-[10px] uppercase tracking-[0.22em] text-faded-ink mb-8">
 						§ I · The problem
 					</div>
-					<h2 className="font-display text-[48px] sm:text-[64px] leading-[1.02] tracking-tight text-ink max-w-[900px]">
+					<h2 className="font-display text-[48px] sm:text-[64px] leading-[1.02] tracking-tight text-ink max-w-[900px] mb-14">
 						Meetings end. The work disappears.
 					</h2>
-					<div className="mt-14 grid grid-cols-1 md:grid-cols-3 gap-x-12 gap-y-10 max-w-[1100px]">
+					{/*
+					 * Three "voices" — short verbatim-style quotes from the kinds
+					 * of moments this product would have saved. More vivid than
+					 * a numbered list; the reader hears their own meetings in
+					 * each line. Attribution is the WHERE / WHEN of the
+					 * conversation, in mono, to anchor it in a real scene.
+					 */}
+					<div className="grid grid-cols-1 md:grid-cols-3 gap-x-10 gap-y-12 max-w-[1100px]">
 						{[
 							{
-								numeral: '01.',
-								body: 'Decisions get buried in chat threads — and nobody can find them next week.',
+								quote:
+									'“Wait — what did we decide about pricing last week?”',
+								where: 'A Slack thread · Wednesday, 4:42pm',
 							},
 							{
-								numeral: '02.',
-								body: 'Action items end up in someone’s head. By Tuesday, nobody remembers who owns what.',
+								quote:
+									'“I thought Alex was going to own it? Or was it Sam?”',
+								where: 'A standup · two sprints later',
 							},
 							{
-								numeral: '03.',
-								body: 'Transcripts are walls of text. Useful in theory, unread in practice.',
+								quote:
+									'“There’s a recording but it’s 47 minutes long. Anyone want to listen back?”',
+								where: 'Silence',
 							},
-						].map((p) => (
-							<div key={p.numeral}>
-								<div className="font-mono text-[22px] text-olive mb-4">
-									{p.numeral}
-								</div>
-								<p className="font-sans text-[18px] leading-[1.5] text-ink">
-									{p.body}
+						].map((v) => (
+							<div key={v.where} className="border-l border-hairline pl-6">
+								<p className="font-display italic text-[26px] leading-[1.3] text-ink mb-5">
+									{v.quote}
 								</p>
+								<div className="font-mono text-[11px] uppercase tracking-[0.18em] text-faded-ink">
+									— {v.where}
+								</div>
 							</div>
 						))}
 					</div>
@@ -326,84 +372,70 @@ export default function Home() {
 				</div>
 			</section>
 
-			{/* ── §5 · SEE IT WORK (video) ──────────────────────────────── */}
+			{/* ── §5 · POSITIONING (vs other meeting tools) ─────────────── */}
 			<section className="border-t border-hairline bg-[rgba(26,24,21,0.018)] stagger-5">
 				<div className="max-w-[1200px] mx-auto px-8 py-24">
 					<div className="font-mono text-[10px] uppercase tracking-[0.22em] text-faded-ink mb-8">
-						§ IV · See it work
+						§ IV · What it isn’t
 					</div>
-					<h2 className="font-display text-[48px] sm:text-[64px] leading-[1.02] tracking-tight text-ink max-w-[900px] mb-4">
-						Ninety seconds of a Q3 planning meeting.
+					<h2 className="font-display text-[48px] sm:text-[64px] leading-[1.02] tracking-tight text-ink max-w-[1000px] mb-6">
+						Not the meeting tool you’ve used before.
 					</h2>
-					<p className="font-sans text-[18px] leading-[1.5] text-faded-ink max-w-[760px] mb-12">
-						Watch the canvas catch the meeting in real time, then take
-						direct instructions afterwards.
+					<p className="font-sans text-[18px] leading-[1.55] text-faded-ink max-w-[760px] mb-16">
+						Most tools that follow your meetings fall into three
+						buckets. None of them produce the document you actually
+						wanted.
 					</p>
-					<div
-						className="relative w-full overflow-hidden rounded-sm border border-hairline bg-paper"
-						style={{
-							boxShadow: '0 24px 60px -28px rgba(26,24,21,0.30)',
-							aspectRatio: '16 / 9',
-						}}
-					>
-						{/*
-						 * Autoplay-muted-loop is the safe combo: browsers
-						 * allow it without user gesture, and embeds keep
-						 * playing on scroll-into-view. `playsInline` is
-						 * required for iOS to play in the page rather than
-						 * launching the system video player.
-						 */}
-						<video
-							className="w-full h-full block"
-							src="/hero.mp4"
-							poster="/hero-poster.jpg"
-							autoPlay
-							muted
-							loop
-							playsInline
-							preload="metadata"
-						>
-							<track kind="captions" />
-						</video>
-					</div>
-					<p className="mt-5 font-mono text-[11px] uppercase tracking-[0.18em] text-faded-ink">
-						A staged demo · 90s · 30fps
-					</p>
-				</div>
-			</section>
 
-			{/* ── §6 · DIFFERENTIATORS ──────────────────────────────────── */}
-			<section className="border-t border-hairline stagger-6">
-				<div className="max-w-[1200px] mx-auto px-8 py-24 grid grid-cols-12 gap-12">
-					<div className="col-span-12 lg:col-span-4">
-						<div className="font-mono text-[10px] uppercase tracking-[0.22em] text-faded-ink mb-6">
-							§ V · Why it’s different
+					<div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-[1100px]">
+						{[
+							{
+								tag: 'Recorders',
+								gives: 'Hours of audio.',
+								miss: 'You’ll never re-listen.',
+							},
+							{
+								tag: 'Transcripts',
+								gives: 'A wall of text.',
+								miss: 'Nobody opens it twice.',
+							},
+							{
+								tag: 'AI summaries',
+								gives: 'A paragraph or two.',
+								miss: 'The structure is gone.',
+							},
+						].map((bucket) => (
+							<div
+								key={bucket.tag}
+								className="border border-hairline rounded-sm p-7 bg-paper"
+							>
+								<div className="font-mono text-[10px] uppercase tracking-[0.22em] text-faded-ink mb-4">
+									{bucket.tag}
+								</div>
+								<div className="font-display text-[24px] text-ink leading-[1.15] mb-3">
+									{bucket.gives}
+								</div>
+								<div className="font-sans text-[15px] text-faded-ink italic leading-[1.45]">
+									{bucket.miss}
+								</div>
+							</div>
+						))}
+					</div>
+
+					<div className="mt-16 max-w-[1000px]">
+						<div className="font-mono text-[10px] uppercase tracking-[0.22em] text-olive mb-3">
+							What we give you instead
 						</div>
-						<h2 className="font-display text-[40px] leading-[1.05] tracking-tight text-ink">
-							Three things meeting tools usually get wrong.
-						</h2>
-					</div>
-					<div className="col-span-12 lg:col-span-8 flex flex-col gap-12">
-						<Diff
-							numeral="01."
-							title="Live, not after the fact."
-							body="No re-listening to a thirty-minute recording. Structure appears while you talk, so the document is done when the meeting is."
-						/>
-						<Diff
-							numeral="02."
-							title="A graph, not a transcript."
-							body="Proposals resolve into decisions. Commitments hang off them. Blockers point at what they block. The conversation’s structure is preserved."
-						/>
-						<Diff
-							numeral="03."
-							title="Voice or chat — your choice."
-							body="Talk through the meeting, or type sharper instructions. Same canvas, same vocabulary, same artifact at the end."
-						/>
+						<p className="font-display text-[32px] sm:text-[40px] leading-[1.15] text-ink tracking-tight">
+							A <em className="italic">typed, navigable graph</em> of what
+							was said — drawn live, editable by voice or chat, and
+							waiting where you left it next week.
+						</p>
 					</div>
 				</div>
 			</section>
 
-			{/* ── §7 · FINAL CTA ────────────────────────────────────────── */}
+			{/* ── §6 · FINAL CTA ────────────────────────────────────────── */}
 			<section className="border-t border-hairline stagger-7">
 				<div className="max-w-[1200px] mx-auto px-8 py-28 text-center">
 					<h2
@@ -417,8 +449,8 @@ export default function Home() {
 						Start your first canvas.
 					</h2>
 					<p className="mt-7 font-sans text-[18px] text-faded-ink max-w-[520px] mx-auto">
-						Sign in with Google or email. Free for now, no credit
-						card. Two minutes to your first card.
+						Sign in with Google or email. Free during beta, no
+						credit card. Two minutes to your first card.
 					</p>
 					<div className="mt-10 flex justify-center gap-3">
 						<Show when="signed-out">
@@ -437,17 +469,40 @@ export default function Home() {
 				</div>
 			</section>
 
-			{/* ── §8 · FOOTER ────────────────────────────────────────────── */}
+			{/* ── AUTHOR QUOTE — humanizes the page before the footer ───── */}
+			<section className="border-t border-hairline bg-[rgba(46,83,55,0.025)]">
+				<div className="max-w-[900px] mx-auto px-8 py-20">
+					<blockquote className="font-display italic text-[26px] sm:text-[30px] leading-[1.4] text-ink">
+						“I built this because I was tired of meetings ending and
+						the work going nowhere. The canvas is the document I
+						always wished I had at the end of every call.”
+					</blockquote>
+					<div className="mt-6 font-mono text-[11px] uppercase tracking-[0.22em] text-faded-ink">
+						— Aravindan Sriraj
+					</div>
+				</div>
+			</section>
+
+			{/* ── FOOTER ────────────────────────────────────────────────── */}
 			<footer className="border-t border-hairline">
 				<div className="max-w-[1200px] mx-auto px-8 py-10 grid grid-cols-12 gap-6 font-mono text-[11px] text-faded-ink leading-relaxed">
 					<div className="col-span-12 md:col-span-4">
 						Built · Milan AI Week 2026 · Aravindan Sriraj
 					</div>
-					<div className="col-span-12 md:col-span-8 md:text-right">
+					<div className="col-span-12 md:col-span-5 md:text-center">
 						<span className="text-faded-ink">
-							Built with Next.js · tldraw · Gemini · Speechmatics · Neon
-							· Clerk
+							Next.js · tldraw · Gemini · Speechmatics · Neon · Clerk
 						</span>
+					</div>
+					<div className="col-span-12 md:col-span-3 md:text-right">
+						<a
+							href="https://github.com/aravindsriraj/conversation-canvas"
+							target="_blank"
+							rel="noopener noreferrer"
+							className="text-faded-ink hover:text-ink transition-colors border-b border-hairline pb-0.5"
+						>
+							View source on GitHub →
+						</a>
 					</div>
 				</div>
 			</footer>
@@ -459,6 +514,12 @@ export default function Home() {
 					50% { opacity: 1; }
 				}
 				.live-pulse { animation: live-pulse 1.8s ease-in-out infinite; }
+
+				@keyframes scroll-bounce {
+					0%, 100% { transform: translateY(0); opacity: 0.55; }
+					50% { transform: translateY(4px); opacity: 1; }
+				}
+				.hero-scroll-cue { animation: scroll-bounce 2.4s ease-in-out infinite; }
 
 				@keyframes fade-up {
 					from { opacity: 0; transform: translateY(12px); }
