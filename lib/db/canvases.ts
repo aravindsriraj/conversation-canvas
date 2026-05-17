@@ -21,6 +21,23 @@ export interface CanvasRow {
 }
 
 /**
+ * `CanvasRow` + per-canvas activity tally, used by the dashboard list view to
+ * render a tiny preview ("12 shapes · 3 decisions · 5 links") next to each
+ * row without paying the cost of a full snapshot fetch.
+ *
+ * All counts are int-cast to JS `number` in SQL because postgres-js returns
+ * `bigint` for `COUNT(*)` and our rows hand-off to JSON serialisation in the
+ * Server Component.
+ */
+export interface CanvasRowWithStats extends CanvasRow {
+	action_count: number
+	proposals: number
+	decisions: number
+	notes: number
+	links: number
+}
+
+/**
  * Upsert a user. Called on every authenticated request that needs a user row
  * to exist (e.g. first canvas create). Idempotent: subsequent calls with
  * different display_name/color won't overwrite — only the first one wins for
@@ -56,11 +73,36 @@ export async function createCanvas(
 
 export async function listCanvasesByOwner(
 	ownerId: string,
-): Promise<CanvasRow[]> {
-	return sql<CanvasRow[]>`
-		SELECT * FROM canvases
-		WHERE owner_id = ${ownerId}
-		ORDER BY updated_at DESC
+): Promise<CanvasRowWithStats[]> {
+	// LATERAL aggregation so each canvas is paired with its own per-type
+	// tally in a single round-trip. COUNT(*) FILTER is the standard SQL way
+	// to do conditional counts in one pass; cheaper than running multiple
+	// scans of canvas_actions per canvas.
+	//
+	// `::int` casts: postgres-js maps SQL bigint to JS bigint (not number)
+	// by default; we cast at the source so the row hits JS as a plain number
+	// and round-trips through JSON without surprises.
+	return sql<CanvasRowWithStats[]>`
+		SELECT
+			c.*,
+			COALESCE(stats.total, 0)::int     AS action_count,
+			COALESCE(stats.proposals, 0)::int AS proposals,
+			COALESCE(stats.decisions, 0)::int AS decisions,
+			COALESCE(stats.notes, 0)::int     AS notes,
+			COALESCE(stats.links, 0)::int     AS links
+		FROM canvases c
+		LEFT JOIN LATERAL (
+			SELECT
+				COUNT(*)                                                            AS total,
+				COUNT(*) FILTER (WHERE action->>'type' = 'create_proposal_card')    AS proposals,
+				COUNT(*) FILTER (WHERE action->>'type' = 'create_decision_card')    AS decisions,
+				COUNT(*) FILTER (WHERE action->>'type' = 'create_note')             AS notes,
+				COUNT(*) FILTER (WHERE action->>'type' = 'link_nodes')              AS links
+			FROM canvas_actions
+			WHERE canvas_id = c.id
+		) stats ON true
+		WHERE c.owner_id = ${ownerId}
+		ORDER BY c.updated_at DESC
 	`
 }
 

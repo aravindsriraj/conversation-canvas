@@ -33,6 +33,12 @@ interface CanvasRootProps {
 	enrollment: { name: string; color: string }
 }
 
+// One-time, per-browser flag for the first-canvas tutorial. We store the
+// literal '1' rather than a JSON-encoded boolean so the absence-of-key vs.
+// false-value distinction is unambiguous, and to keep the value tiny so it
+// doesn't bloat the localStorage quota on shared devices.
+const TUTORIAL_SEEN_KEY = 'conversation-canvas:tutorial-seen'
+
 export function CanvasRoot({ roomId, canvasName, enrollment }: CanvasRootProps) {
 	const editorRef = useRef<Editor | null>(null)
 	const wsRef = useRef<WebSocket | null>(null)
@@ -49,6 +55,12 @@ export function CanvasRoot({ roomId, canvasName, enrollment }: CanvasRootProps) 
 	// replay or from a fresh user edit). Drives the empty-canvas hint
 	// overlay below.
 	const [hasShapes, setHasShapes] = useState(false)
+	// First-canvas tutorial: shown ONCE per browser (localStorage-gated)
+	// for users who've never used the app before. Sits in the bottom-left
+	// so it doesn't fight with the centered empty-canvas hint; auto-dismisses
+	// the moment a shape appears OR on explicit close. Default false; the
+	// effect below flips it on for first-time visitors.
+	const [showTutorial, setShowTutorial] = useState(false)
 	const { isLoaded, isSignedIn, getToken } = useAuth()
 	// We keep a ref alongside the state so the WS message handler reads the
 	// latest registry without forcing the WS effect to re-run (which would
@@ -91,6 +103,30 @@ export function CanvasRoot({ roomId, canvasName, enrollment }: CanvasRootProps) 
 			if (attachInterval) clearInterval(attachInterval)
 			unsubscribe?.()
 		}
+	}, [])
+
+	// First-canvas tutorial gate. Reads the localStorage flag once on mount;
+	// if the user has never seen the tutorial, show it. We don't gate on
+	// hasShapes because a returning user with prior canvases (i.e. has
+	// content here) shouldn't see the walkthrough — we ALSO check hasShapes
+	// in the render path so the tutorial never overlays an active canvas.
+	useEffect(() => {
+		if (typeof window === 'undefined') return
+		try {
+			if (window.localStorage.getItem(TUTORIAL_SEEN_KEY) !== '1') {
+				setShowTutorial(true)
+			}
+		} catch {
+			// localStorage can throw in private browsing — degrade silently;
+			// the tutorial won't show but the app still works.
+		}
+	}, [])
+
+	const dismissTutorial = useCallback(() => {
+		setShowTutorial(false)
+		try {
+			window.localStorage.setItem(TUTORIAL_SEEN_KEY, '1')
+		} catch {}
 	}, [])
 
 	// Snapshot save loop. Subscribes to user-initiated document changes
@@ -466,6 +502,71 @@ export function CanvasRoot({ roomId, canvasName, enrollment }: CanvasRootProps) 
 							<div>"Draw a flowchart from idea to launch."</div>
 							<div>"Add a sticky for the post-Q3 review."</div>
 							<div>"Rank these by impact and effort."</div>
+						</div>
+					</div>
+				</div>
+			)}
+
+			{/*
+				First-canvas tutorial. Visible only on a first-time visit
+				(localStorage gated) AND while the canvas is still empty.
+				Sits in the bottom-left so it doesn't fight with the
+				centered empty-canvas hint. Pointer-events: auto on the
+				card itself so the dismiss button works, but the wrapper
+				is transparent and lets clicks fall through to tldraw.
+			*/}
+			{showTutorial && !hasShapes && (
+				<div className="absolute left-6 bottom-6 pointer-events-none z-30">
+					<div
+						className="pointer-events-auto bg-paper border border-hairline shadow-[0_4px_24px_rgba(0,0,0,0.06)] rounded-sm w-[280px] tutorial-in"
+					>
+						<div className="px-4 py-3 border-b border-hairline flex items-center justify-between">
+							<span className="font-mono text-[10px] uppercase tracking-[0.22em] text-faded-ink">
+								§ First time here
+							</span>
+							<button
+								type="button"
+								onClick={dismissTutorial}
+								aria-label="Dismiss tutorial"
+								className="font-mono text-[10px] uppercase tracking-[0.18em] text-faded-ink hover:text-ink"
+							>
+								Close
+							</button>
+						</div>
+						<ol className="px-4 py-4 flex flex-col gap-3 font-sans text-[13px] leading-[1.45] text-ink/85">
+							<li className="flex gap-3">
+								<span className="font-mono text-[10px] tracking-[0.1em] text-olive shrink-0 mt-[2px]">
+									01
+								</span>
+								<span>
+									Hit <span className="font-medium">Listen</span> (top right) so the canvas can hear the meeting.
+								</span>
+							</li>
+							<li className="flex gap-3">
+								<span className="font-mono text-[10px] tracking-[0.1em] text-olive shrink-0 mt-[2px]">
+									02
+								</span>
+								<span>
+									Talk normally — proposals, decisions and action items show up as you speak.
+								</span>
+							</li>
+							<li className="flex gap-3">
+								<span className="font-mono text-[10px] tracking-[0.1em] text-olive shrink-0 mt-[2px]">
+									03
+								</span>
+								<span>
+									Open <span className="font-medium">Ask AI</span> to refine the board by typing.
+								</span>
+							</li>
+						</ol>
+						<div className="px-4 pb-4">
+							<button
+								type="button"
+								onClick={dismissTutorial}
+								className="w-full font-mono text-[11px] uppercase tracking-[0.18em] text-paper bg-ink hover:bg-olive transition-colors py-2 rounded-sm"
+							>
+								Got it
+							</button>
 						</div>
 					</div>
 				</div>

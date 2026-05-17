@@ -77,6 +77,13 @@ export default async function DashboardPage() {
 									name: c.name,
 									createdAt: c.created_at.toISOString(),
 									updatedAt: c.updated_at.toISOString(),
+									stats: {
+										actionCount: c.action_count,
+										proposals: c.proposals,
+										decisions: c.decisions,
+										notes: c.notes,
+										links: c.links,
+									},
 								}}
 							/>
 						))}

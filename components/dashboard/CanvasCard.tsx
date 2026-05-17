@@ -5,11 +5,20 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 
+interface CanvasStats {
+	actionCount: number
+	proposals: number
+	decisions: number
+	notes: number
+	links: number
+}
+
 interface Canvas {
 	id: string
 	name: string
 	createdAt: string | Date
 	updatedAt: string | Date
+	stats?: CanvasStats
 }
 
 interface Props {
@@ -104,8 +113,9 @@ export function CanvasCard({ canvas }: Props) {
 							{canvas.name}
 						</Link>
 					)}
-					<div className="mt-1 font-mono text-[10px] uppercase tracking-[0.18em] text-faded-ink">
-						{dateLabel}
+					<div className="mt-1 flex items-center gap-3 font-mono text-[10px] uppercase tracking-[0.18em] text-faded-ink">
+						<span>{dateLabel}</span>
+						{canvas.stats ? <CanvasStatsLine stats={canvas.stats} /> : null}
 					</div>
 				</div>
 				<div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -153,4 +163,43 @@ function formatDate(d: string | Date): string {
 	const date = typeof d === 'string' ? new Date(d) : d
 	if (Number.isNaN(date.getTime())) return ''
 	return DATE_FMT.format(date)
+}
+
+/**
+ * Compact "12 shapes · 3 decisions · 5 links" line, paired with a tiny SVG
+ * glyph row so an empty canvas reads visually different from a busy one even
+ * at a glance. The glyph is intentionally minimal — six dots sized by the
+ * proportional tally so the eye can register "more activity" without
+ * stopping to read.
+ *
+ * We hide the line entirely on an empty canvas — better signal than rendering
+ * a row of zeros.
+ */
+function CanvasStatsLine({ stats }: { stats: CanvasStats }) {
+	if (stats.actionCount === 0) {
+		return <span className="text-faded-ink/60">· untouched</span>
+	}
+	const parts: string[] = []
+	parts.push(`${stats.actionCount} ${stats.actionCount === 1 ? 'shape' : 'shapes'}`)
+	if (stats.decisions > 0) parts.push(`${stats.decisions} decision${stats.decisions === 1 ? '' : 's'}`)
+	else if (stats.proposals > 0) parts.push(`${stats.proposals} proposal${stats.proposals === 1 ? '' : 's'}`)
+	if (stats.links > 0) parts.push(`${stats.links} link${stats.links === 1 ? '' : 's'}`)
+	// Glyph: scaled bar = log of the count, capped so a 200-shape canvas
+	// doesn't dwarf a 5-shape one beyond the width budget.
+	const totalScale = Math.min(1, Math.log10(stats.actionCount + 1) / 2)
+	return (
+		<>
+			<span aria-hidden="true">·</span>
+			<span className="flex items-center gap-1.5">
+				<span
+					className="inline-block h-1.5 rounded-[1px] bg-olive/70"
+					style={{ width: `${Math.max(8, totalScale * 36)}px` }}
+					aria-hidden="true"
+				/>
+				<span className="text-ink/60 normal-case tracking-normal text-[11px]">
+					{parts.join(' · ')}
+				</span>
+			</span>
+		</>
+	)
 }

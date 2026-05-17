@@ -79,3 +79,17 @@ body > * {
 .agent-pulse {
 	animation: agent-pulse 1.6s ease-in-out infinite;
 }
+
+/*
+ * One-shot fade+lift used by the first-canvas tutorial card. Lives here
+ * (not styled-jsx) because the file is a client component and we'd rather
+ * not pull in styled-jsx just for one keyframe. Single use, low coupling
+ * — just the entrance animation, no exit (the card unmounts on dismiss).
+ */
+@keyframes tutorial-in {
+	from { opacity: 0; transform: translateY(8px); }
+	to { opacity: 1; transform: translateY(0); }
+}
+.tutorial-in {
+	animation: tutorial-in 320ms cubic-bezier(.22,.61,.36,1) both;
+}
