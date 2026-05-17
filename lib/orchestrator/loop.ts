@@ -169,7 +169,12 @@ export async function runOrchestratorTick(room: Room): Promise<Action[]> {
  * existing prop values (we've seen Gemini emit "update b1.total to 100000"
  * when b1.total is already 100000).
  */
-function filterDuplicateCreates(actions: Action[], room: Room): Action[] {
+// Exported for unit testing — see tests/orchestrator-dedup.test.ts. The
+// production call site is still within `runOrchestratorTick` below.
+export function filterDuplicateCreates(
+	actions: Action[],
+	room: Room,
+): Action[] {
 	// Three-pass dedup:
 	//   1. Text-content overlap — catches duplicate proposals/decisions/etc.
 	//      For decision_card duplicates we synthesize an update_card on the

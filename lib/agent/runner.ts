@@ -177,7 +177,10 @@ export function makeCanvasAgent(room: Room) {
  * hallucinated). All read outputs are intentionally compact — under a few
  * KB — so they don't blow out the context window.
  */
-function buildTools(room: Room) {
+// Exported for unit testing — direct invocation of each tool's `execute`
+// closure against a stub `Room` lets us cover read-tool behavior without
+// spinning up the full agent stream.
+export function buildTools(room: Room) {
 	const emitAction = tool({
 		description:
 			'Add or modify a shape on the canvas. Pass a single Action object whose `type` is one of the documented action types. Call this multiple times in a turn to emit multiple actions.',
