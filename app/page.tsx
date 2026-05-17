@@ -24,7 +24,7 @@ export default function Home() {
 		<div className="min-h-screen w-full bg-paper text-ink">
 			{/* ── HEADER ─────────────────────────────────────────────────── */}
 			<header className="sticky top-0 z-50 backdrop-blur-[2px] bg-paper/70 border-b border-hairline">
-				<div className="max-w-[1200px] mx-auto px-8 py-4 flex items-center justify-between">
+				<div className="max-w-[1200px] mx-auto px-5 sm:px-8 py-4 flex items-center justify-between">
 					<div className="flex items-center gap-3">
 						<span className="w-1 h-1 bg-olive" aria-hidden="true" />
 						<span className="font-display text-[14px] uppercase tracking-[0.22em] text-ink">
@@ -60,7 +60,7 @@ export default function Home() {
 			</header>
 
 			{/* ── §1 · HERO ──────────────────────────────────────────────── */}
-			<section className="max-w-[1200px] mx-auto px-8 pt-24 pb-16 stagger-1">
+			<section className="max-w-[1200px] mx-auto px-5 sm:px-8 pt-24 pb-16 stagger-1">
 				{/*
 				 * Hero text block first — narrower so the rag stays editorial.
 				 * The video below it is the centerpiece; this is the
@@ -159,11 +159,11 @@ export default function Home() {
 
 			{/* ── §2 · PROBLEM (as voices) ──────────────────────────────── */}
 			<section className="border-t border-hairline stagger-2">
-				<div className="max-w-[1200px] mx-auto px-8 py-24">
+				<div className="max-w-[1200px] mx-auto px-5 sm:px-8 py-24">
 					<div className="font-mono text-[10px] uppercase tracking-[0.22em] text-faded-ink mb-8">
 						§ I · The problem
 					</div>
-					<h2 className="font-display text-[48px] sm:text-[64px] leading-[1.02] tracking-tight text-ink max-w-[900px] mb-14">
+					<h2 className="font-display text-[36px] sm:text-[48px] md:text-[64px] leading-[1.02] tracking-tight text-ink max-w-[900px] mb-14">
 						Meetings end. The work disappears.
 					</h2>
 					{/*
@@ -206,11 +206,11 @@ export default function Home() {
 
 			{/* ── §3 · HOW IT WORKS ─────────────────────────────────────── */}
 			<section className="border-t border-hairline bg-[rgba(46,83,55,0.025)] stagger-3">
-				<div className="max-w-[1200px] mx-auto px-8 py-24">
+				<div className="max-w-[1200px] mx-auto px-5 sm:px-8 py-24">
 					<div className="font-mono text-[10px] uppercase tracking-[0.22em] text-faded-ink mb-8">
 						§ II · How it works
 					</div>
-					<h2 className="font-display text-[48px] sm:text-[64px] leading-[1.02] tracking-tight text-ink max-w-[900px] mb-16">
+					<h2 className="font-display text-[36px] sm:text-[48px] md:text-[64px] leading-[1.02] tracking-tight text-ink max-w-[900px] mb-16">
 						Three steps. No setup. No templates.
 					</h2>
 					<div className="grid grid-cols-1 md:grid-cols-3 gap-10 max-w-[1100px]">
@@ -249,11 +249,11 @@ export default function Home() {
 
 			{/* ── §4 · ON YOUR CANVAS (two tiers) ────────────────────────── */}
 			<section className="border-t border-hairline stagger-4">
-				<div className="max-w-[1200px] mx-auto px-8 py-24">
+				<div className="max-w-[1200px] mx-auto px-5 sm:px-8 py-24">
 					<div className="font-mono text-[10px] uppercase tracking-[0.22em] text-faded-ink mb-8">
 						§ III · What ends up on your canvas
 					</div>
-					<h2 className="font-display text-[48px] sm:text-[64px] leading-[1.02] tracking-tight text-ink max-w-[1000px] mb-4">
+					<h2 className="font-display text-[36px] sm:text-[48px] md:text-[64px] leading-[1.02] tracking-tight text-ink max-w-[1000px] mb-4">
 						Everything a whiteboard could be — and then some.
 					</h2>
 					<p className="font-sans text-[18px] leading-[1.5] text-faded-ink max-w-[760px]">
@@ -379,11 +379,11 @@ export default function Home() {
 
 			{/* ── §5 · POSITIONING (vs other meeting tools) ─────────────── */}
 			<section className="border-t border-hairline bg-[rgba(26,24,21,0.018)] stagger-5">
-				<div className="max-w-[1200px] mx-auto px-8 py-24">
+				<div className="max-w-[1200px] mx-auto px-5 sm:px-8 py-24">
 					<div className="font-mono text-[10px] uppercase tracking-[0.22em] text-faded-ink mb-8">
 						§ IV · What it isn’t
 					</div>
-					<h2 className="font-display text-[48px] sm:text-[64px] leading-[1.02] tracking-tight text-ink max-w-[1000px] mb-6">
+					<h2 className="font-display text-[36px] sm:text-[48px] md:text-[64px] leading-[1.02] tracking-tight text-ink max-w-[1000px] mb-6">
 						Not the meeting tool you’ve used before.
 					</h2>
 					<p className="font-sans text-[18px] leading-[1.55] text-faded-ink max-w-[760px] mb-16">
@@ -442,7 +442,7 @@ export default function Home() {
 
 			{/* ── §6 · FINAL CTA ────────────────────────────────────────── */}
 			<section className="border-t border-hairline stagger-7">
-				<div className="max-w-[1200px] mx-auto px-8 py-28 text-center">
+				<div className="max-w-[1200px] mx-auto px-5 sm:px-8 py-28 text-center">
 					<h2
 						className="font-display font-light text-ink"
 						style={{
@@ -476,7 +476,7 @@ export default function Home() {
 
 			{/* ── AUTHOR QUOTE — humanizes the page before the footer ───── */}
 			<section className="border-t border-hairline bg-[rgba(46,83,55,0.025)]">
-				<div className="max-w-[900px] mx-auto px-8 py-20">
+				<div className="max-w-[900px] mx-auto px-5 sm:px-8 py-20">
 					<blockquote className="font-display italic text-[26px] sm:text-[30px] leading-[1.4] text-ink">
 						“I built this because I was tired of meetings ending and
 						the work going nowhere. The canvas is the document I
@@ -490,7 +490,7 @@ export default function Home() {
 
 			{/* ── FOOTER ────────────────────────────────────────────────── */}
 			<footer className="border-t border-hairline">
-				<div className="max-w-[1200px] mx-auto px-8 py-10 grid grid-cols-12 gap-6 font-mono text-[11px] text-faded-ink leading-relaxed">
+				<div className="max-w-[1200px] mx-auto px-5 sm:px-8 py-10 grid grid-cols-12 gap-6 font-mono text-[11px] text-faded-ink leading-relaxed">
 					<div className="col-span-12 md:col-span-4">
 						Built · Milan AI Week 2026 · Aravindan Sriraj
 					</div>

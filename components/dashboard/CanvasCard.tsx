@@ -84,7 +84,7 @@ export function CanvasCard({ canvas }: Props) {
 				className="absolute left-0 top-0 bottom-0 w-1 bg-olive opacity-0 group-hover:opacity-100 transition-opacity"
 				aria-hidden="true"
 			/>
-			<div className="flex items-center gap-6 px-5 py-4">
+			<div className="flex items-center gap-3 sm:gap-6 px-4 sm:px-5 py-4">
 				<div className="flex-1 min-w-0">
 					{editing ? (
 						<form onSubmit={saveRename} className="flex items-center gap-2">
@@ -113,12 +113,12 @@ export function CanvasCard({ canvas }: Props) {
 							{canvas.name}
 						</Link>
 					)}
-					<div className="mt-1 flex items-center gap-3 font-mono text-[10px] uppercase tracking-[0.18em] text-faded-ink">
+					<div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[10px] uppercase tracking-[0.18em] text-faded-ink">
 						<span>{dateLabel}</span>
 						{canvas.stats ? <CanvasStatsLine stats={canvas.stats} /> : null}
 					</div>
 				</div>
-				<div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+				<div className="flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
 					<button
 						type="button"
 						onClick={() => setEditing(true)}

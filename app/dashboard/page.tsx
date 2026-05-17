@@ -22,7 +22,7 @@ export default async function DashboardPage() {
 	return (
 		<div className="min-h-screen w-full bg-paper text-ink">
 			<header className="sticky top-0 z-50 backdrop-blur-[2px] bg-paper/70 border-b border-hairline">
-				<div className="max-w-[1200px] mx-auto px-8 py-4 flex items-center justify-between">
+				<div className="max-w-[1200px] mx-auto px-5 sm:px-8 py-4 flex items-center justify-between">
 					<Link href="/" className="flex items-center gap-3">
 						<span className="w-1 h-1 bg-olive" aria-hidden="true" />
 						<span className="font-display text-[14px] uppercase tracking-[0.22em] text-ink">
@@ -38,7 +38,7 @@ export default async function DashboardPage() {
 				</div>
 			</header>
 
-			<main className="max-w-[1200px] mx-auto px-8 py-16">
+			<main className="max-w-[1200px] mx-auto px-5 sm:px-8 py-16">
 				<div className="font-mono text-[10px] uppercase tracking-[0.22em] text-faded-ink mb-6">
 					No. 01 · Your canvases
 				</div>

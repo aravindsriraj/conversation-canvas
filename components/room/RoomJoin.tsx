@@ -23,13 +23,13 @@ export function RoomJoin({ onJoin }: Props) {
 	const [color, setColor] = useState(COLORS[0])
 
 	return (
-		<div className="fixed inset-0 grid place-items-center bg-paper">
+		<div className="fixed inset-0 grid place-items-center bg-paper px-4">
 			<form
 				onSubmit={(e) => {
 					e.preventDefault()
 					if (name) onJoin(name, color)
 				}}
-				className="w-[420px] bg-paper border border-hairline rounded-sm px-8 py-9 flex flex-col gap-6"
+				className="w-full max-w-[420px] bg-paper border border-hairline rounded-sm px-6 sm:px-8 py-8 sm:py-9 flex flex-col gap-6"
 				style={{
 					// Slight inset shadow so the figure sits in the paper rather than on top of it.
 					boxShadow:
