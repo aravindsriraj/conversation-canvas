@@ -6,6 +6,111 @@ import { AGENT_SYSTEM_PROMPT } from '@/lib/agent/prompt'
 import { buildAgentContext } from '@/lib/agent/context'
 import type { Room } from '@server/room'
 
+// Latest reconstructed state of an L3 widget — populated by walking
+// actionHistory and applying the initial create + every subsequent
+// update_card patch in order. The agent uses this to build a complete
+// update_card patch (preserving impact/effort/etc.) when editing items.
+type WidgetMatrixItems = Array<{
+	id: string
+	label: string
+	[k: string]: unknown
+}>
+type WidgetBudgetSplits = Array<{
+	label: string
+	amountPct: number
+	[k: string]: unknown
+}>
+type WidgetState =
+	| { kind: 'priority_matrix'; items: WidgetMatrixItems }
+	| { kind: 'gantt'; items: WidgetMatrixItems }
+	| {
+			kind: 'budget_allocator'
+			total: number
+			currency: string
+			splits: WidgetBudgetSplits
+	  }
+
+function isWidgetType(type: string): boolean {
+	return (
+		type === 'create_priority_matrix' ||
+		type === 'create_budget_allocator' ||
+		type === 'create_gantt'
+	)
+}
+
+/**
+ * Walk action history from the start, materialising the LATEST state of an
+ * L3 widget by id. Starts from the initial create and folds every
+ * `update_card` whose `id` matches. Returns `null` if no create_… was found
+ * (i.e. the widget id doesn't exist on the canvas).
+ *
+ * This sidesteps a sharp edge in the agent's flow: the prompt tells it to
+ * emit `update_card { items: [...] }` to remove a single row, but
+ * `priority-matrix`'s tldraw shape props demand a FULL items array (each
+ * with id/label/impact/effort). Without seeing the original impact/effort
+ * numbers the agent would have to invent them — which both loses data and
+ * trips tldraw's runtime validator. Returning the full reconstructed state
+ * here lets the agent filter the live list and emit a complete patch.
+ */
+function reconstructWidgetState(
+	id: string,
+	history: import('@/lib/actions/schema').Action[],
+): WidgetState | null {
+	let state: WidgetState | null = null
+	for (const a of history) {
+		if (!('id' in a) || a.id !== id) continue
+		if (a.type === 'create_priority_matrix') {
+			state = { kind: 'priority_matrix', items: [...a.items] }
+		} else if (a.type === 'create_gantt') {
+			// Gantt items carry startDays/endDays etc.; preserved as opaque
+			// records so the agent can echo them back on update.
+			state = {
+				kind: 'gantt',
+				items: [
+					...(a.items as unknown as Array<{
+						id: string
+						label: string
+						[k: string]: unknown
+					}>),
+				],
+			}
+		} else if (a.type === 'create_budget_allocator') {
+			state = {
+				kind: 'budget_allocator',
+				total: a.total,
+				currency: a.currency ?? '%',
+				splits: [...a.splits],
+			}
+		} else if (a.type === 'update_card' && state) {
+			// Merge the patch onto whichever array the widget kind holds.
+			const patch = a.patch as Record<string, unknown> | undefined
+			if (!patch) continue
+			if (state.kind === 'priority_matrix' && Array.isArray(patch.items)) {
+				state = {
+					kind: 'priority_matrix',
+					items: patch.items as WidgetMatrixItems,
+				}
+			} else if (state.kind === 'gantt' && Array.isArray(patch.items)) {
+				state = { kind: 'gantt', items: patch.items as WidgetMatrixItems }
+			} else if (state.kind === 'budget_allocator') {
+				state = {
+					kind: 'budget_allocator',
+					total:
+						typeof patch.total === 'number' ? patch.total : state.total,
+					currency:
+						typeof patch.currency === 'string'
+							? patch.currency
+							: state.currency,
+					splits: Array.isArray(patch.splits)
+						? (patch.splits as WidgetBudgetSplits)
+						: state.splits,
+				}
+			}
+		}
+	}
+	return state
+}
+
 // Same model as the voice orchestrator — full Flash tier. The agent needs
 // the same classification quality the voice loop does (it picks from the
 // same Action discriminated union), so keeping them in lockstep is the
@@ -219,11 +324,23 @@ export function buildTools(room: Room) {
 
 	const readCanvas = tool({
 		description:
-			"Re-read the current canvas shapes (id, type, content summary). Use when you need to verify an id, find a shape by content, or confirm whether something already exists. Returns shapes in creation order; capped at 50 most-recent for very full canvases.",
+			"Re-read the current canvas shapes (id, type, content summary). Use when you need to verify an id, find a shape by content, or confirm whether something already exists. Returns shapes in creation order; capped at 50 most-recent for very full canvases. For L3 widgets (priority_matrix / budget_allocator / gantt) the response ALSO carries the full reconstructed `widget` state (items array with impact/effort, or splits array with total/currency) so you can build a clean update_card patch without inventing data.",
 		inputSchema: z.object({}),
 		execute: async () => {
 			const all = Array.from(room.canvasShapes.entries()).map(
-				([id, v]) => ({ id, type: v.type, summary: v.summary }),
+				([id, v]) => {
+					const base: {
+						id: string
+						type: string
+						summary: string
+						widget?: WidgetState
+					} = { id, type: v.type, summary: v.summary }
+					if (isWidgetType(v.type)) {
+						const state = reconstructWidgetState(id, room.actionHistory)
+						if (state) base.widget = state
+					}
+					return base
+				},
 			)
 			const truncated = all.length > 50
 			const shapes = truncated ? all.slice(-50) : all
@@ -256,11 +373,30 @@ export function buildTools(room: Room) {
 		execute: async ({ query, type, limit }) => {
 			const q = query?.toLowerCase()
 			const cap = limit ?? 20
-			const out: Array<{ id: string; type: string; summary: string }> = []
+			const out: Array<{
+				id: string
+				type: string
+				summary: string
+				widget?: WidgetState
+			}> = []
 			for (const [id, v] of room.canvasShapes.entries()) {
 				if (type && v.type !== type) continue
 				if (q && !v.summary.toLowerCase().includes(q)) continue
-				out.push({ id, type: v.type, summary: v.summary })
+				const entry: {
+					id: string
+					type: string
+					summary: string
+					widget?: WidgetState
+				} = { id, type: v.type, summary: v.summary }
+				// Same widget enrichment as read_canvas — if the agent is hunting
+				// for a single widget by name and lands on a matrix, hand it the
+				// full items array so the next update_card patch is buildable
+				// without a second tool call.
+				if (isWidgetType(v.type)) {
+					const state = reconstructWidgetState(id, room.actionHistory)
+					if (state) entry.widget = state
+				}
+				out.push(entry)
 				if (out.length >= cap) break
 			}
 			return { count: out.length, matches: out }

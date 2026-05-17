@@ -7,7 +7,7 @@
 		"predev": "pnpm copy-worklet",
 		"prebuild": "pnpm copy-worklet",
 		"prestart": "pnpm copy-worklet",
-		"dev": "tsx --env-file-if-exists=.env.local server/index.ts",
+		"dev": "tsx watch --clear-screen=false --env-file-if-exists=.env.local server/index.ts",
 		"dev:next": "next dev",
 		"build": "next build",
 		"start": "NODE_ENV=production tsx --env-file-if-exists=.env.local server/index.ts",

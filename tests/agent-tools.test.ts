@@ -32,9 +32,31 @@ type ReadCanvasOut = {
 	truncated: boolean
 	shapes: { id: string; type: string; summary: string }[]
 }
+type WidgetMatrixState = {
+	kind: 'priority_matrix' | 'gantt'
+	items: Array<{ id: string; label: string; [k: string]: unknown }>
+}
+type WidgetBudgetState = {
+	kind: 'budget_allocator'
+	total: number
+	currency: string
+	splits: Array<{ label: string; amountPct: number; [k: string]: unknown }>
+}
+type WidgetState = WidgetMatrixState | WidgetBudgetState
+type ShapeOut = {
+	id: string
+	type: string
+	summary: string
+	widget?: WidgetState
+}
 type FindShapesOut = {
 	count: number
-	matches: { id: string; type: string; summary: string }[]
+	matches: ShapeOut[]
+}
+type ReadCanvasOutEx = {
+	count: number
+	truncated: boolean
+	shapes: ShapeOut[]
 }
 type CountLinksOut = {
 	id: string
@@ -532,6 +554,139 @@ describe('agent buildTools()', () => {
 		// matrix rows. The agent now has visibility into item ids via the
 		// expanded summarizeAction output, so this round-trip should pass
 		// when the matrix exists.
+
+		// --- L3 widget state reconstruction (read tools) ---
+		// The read tools must expose the FULL items/splits payload for L3
+		// widgets so the agent can emit a clean update_card patch without
+		// inventing impact/effort or total/currency.
+
+		it('read_canvas attaches reconstructed widget state for a matrix', async () => {
+			const matrixCreate: Action = {
+				type: 'create_priority_matrix',
+				id: 'm1',
+				items: [
+					{ id: 'it1', label: 'Berlin', impact: 0.9, effort: 0.9 },
+					{ id: 'it2', label: 'SoC 2', impact: 0.8, effort: 0.5 },
+					{ id: 'it3', label: 'Internal tooling', impact: 0.2, effort: 0.2 },
+				],
+			}
+			const room = makeRoomStub({
+				canvasShapes: new Map([
+					[
+						'm1',
+						{
+							type: 'create_priority_matrix',
+							summary: 'matrix [it1:"Berlin", it2:"SoC 2", it3:"Internal tooling"]',
+						},
+					],
+				]),
+				actionHistory: [matrixCreate],
+			})
+			const tools = buildTools(room)
+			const out = await callTool<ReadCanvasOutEx>(tools.read_canvas, {})
+			const matrixEntry = out.shapes.find((s) => s.id === 'm1')
+			expect(matrixEntry?.widget).toBeDefined()
+			if (matrixEntry?.widget?.kind === 'priority_matrix') {
+				expect(matrixEntry.widget.items).toHaveLength(3)
+				expect(matrixEntry.widget.items[2].label).toBe('Internal tooling')
+				expect(matrixEntry.widget.items[2].impact).toBe(0.2)
+			}
+		})
+
+		it('reconstructs the latest matrix state after a later update_card', async () => {
+			const room = makeRoomStub({
+				canvasShapes: new Map([
+					[
+						'm1',
+						{
+							type: 'create_priority_matrix',
+							summary: 'matrix [it1:"Berlin", it2:"SoC 2"]',
+						},
+					],
+				]),
+				actionHistory: [
+					{
+						type: 'create_priority_matrix',
+						id: 'm1',
+						items: [
+							{ id: 'it1', label: 'Berlin', impact: 0.9, effort: 0.9 },
+							{ id: 'it2', label: 'SoC 2', impact: 0.8, effort: 0.5 },
+							{ id: 'it3', label: 'Internal tooling', impact: 0.2, effort: 0.2 },
+						],
+					},
+					{
+						type: 'update_card',
+						id: 'm1',
+						patch: {
+							items: [
+								{ id: 'it1', label: 'Berlin', impact: 0.9, effort: 0.9 },
+								{ id: 'it2', label: 'SoC 2', impact: 0.8, effort: 0.5 },
+							],
+						},
+					},
+				] satisfies Action[],
+			})
+			const tools = buildTools(room)
+			const out = await callTool<FindShapesOut>(tools.find_shapes, {
+				type: 'create_priority_matrix',
+			})
+			expect(out.matches).toHaveLength(1)
+			const w = out.matches[0].widget
+			expect(w?.kind).toBe('priority_matrix')
+			if (w?.kind === 'priority_matrix') {
+				expect(w.items).toHaveLength(2)
+				expect(w.items.map((i) => i.id)).toEqual(['it1', 'it2'])
+			}
+		})
+
+		it('reconstructs a budget_allocator with total + currency + splits', async () => {
+			const room = makeRoomStub({
+				canvasShapes: new Map([
+					[
+						'ba1',
+						{
+							type: 'create_budget_allocator',
+							summary: 'budget',
+						},
+					],
+				]),
+				actionHistory: [
+					{
+						type: 'create_budget_allocator',
+						id: 'ba1',
+						total: 400,
+						currency: 'K',
+						splits: [
+							{ label: 'Engineering', amountPct: 50 },
+							{ label: 'Sales', amountPct: 30 },
+							{ label: 'Marketing', amountPct: 15 },
+							{ label: 'Ops', amountPct: 5 },
+						],
+					},
+				],
+			})
+			const tools = buildTools(room)
+			const out = await callTool<ReadCanvasOutEx>(tools.read_canvas, {})
+			const entry = out.shapes.find((s) => s.id === 'ba1')
+			expect(entry?.widget?.kind).toBe('budget_allocator')
+			if (entry?.widget?.kind === 'budget_allocator') {
+				expect(entry.widget.total).toBe(400)
+				expect(entry.widget.currency).toBe('K')
+				expect(entry.widget.splits).toHaveLength(4)
+			}
+		})
+
+		it('non-widget shapes do not carry a widget field', async () => {
+			const room = makeRoomStub({
+				canvasShapes: new Map([
+					['p1', { type: 'create_proposal_card', summary: 'p' }],
+				]),
+				actionHistory: [],
+			})
+			const tools = buildTools(room)
+			const out = await callTool<ReadCanvasOutEx>(tools.read_canvas, {})
+			expect(out.shapes[0].widget).toBeUndefined()
+		})
 
 		it('allows update_card patching matrix items array', async () => {
 			const room = makeRoomStub({

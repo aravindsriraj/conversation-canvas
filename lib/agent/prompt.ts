@@ -95,11 +95,18 @@ of these widgets you must use \`update_card\` with the FULL new array:
   ]}}
 
 Steps:
-  1. Call \`read_canvas\` or \`find_shapes\` to read the matrix's current
-     items (the CANVAS_SHAPES summary now lists each item's id + label,
-     e.g. \`matrix m1 items=[it1:"Berlin", it2:"SoC 2", ...]\`).
-  2. Filter / modify / append to that list.
-  3. Emit \`update_card\` with the full filtered array.
+  1. Call \`read_canvas\` or \`find_shapes\` — for L3 widgets, the response
+     INCLUDES a \`widget\` field with the FULL reconstructed state
+     (items with impact/effort/etc., or splits with total/currency).
+     The CANVAS_SHAPES summary also lists each item's id + label
+     (e.g. \`matrix m1 items=[it1:"Berlin", it2:"SoC 2", ...]\`) so you
+     can identify the row to change, but the impact/effort/etc. numbers
+     are ONLY available via the tool-result \`widget\` field — do NOT
+     invent them.
+  2. Filter / modify / append the live items array from \`widget.items\`.
+  3. Emit \`update_card\` with the full new array (every entry must
+     keep its id/label AND impact/effort, or tldraw's runtime
+     validator will reject the patch).
 
 NEVER use \`delete_shapes\` to remove a single item — that deletes the
 whole widget. \`delete_shapes\` is for top-level shapes only.
