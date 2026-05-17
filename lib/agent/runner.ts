@@ -1,5 +1,5 @@
 import { google } from '@ai-sdk/google'
-import { streamText, stepCountIs, tool } from 'ai'
+import { ToolLoopAgent, stepCountIs, tool } from 'ai'
 import { z } from 'zod'
 import { ActionSchema, type Action } from '@/lib/actions/schema'
 import { AGENT_SYSTEM_PROMPT } from '@/lib/agent/prompt'
@@ -56,88 +56,14 @@ export async function* runAgentTurn(
 	const context = buildAgentContext(room)
 	const userPrompt = `${context}\n\nUSER MESSAGE:\n${userMessage}`
 
-	// The agent's emit_action tool. We deliberately use `z.unknown()` for the
-	// action field so Gemini isn't forced through the SDK's JSON-Schema
-	// conversion of our discriminated union (Gemini Flash 3 has rough edges
-	// with deeply-nested oneOf-style schemas — same reason the voice
-	// orchestrator uses `output: 'no-schema'`). We Zod-validate the inner
-	// object ourselves with ActionSchema right after the tool call.
-	//
-	// Each emit_action call corresponds to exactly one Action. Multiple
-	// actions in one turn = multiple tool calls in the same step.
-	const emitAction = tool({
-		description:
-			'Add or modify a shape on the canvas. Pass a single Action object whose `type` is one of the documented action types. Call this multiple times in a turn to emit multiple actions.',
-		inputSchema: z.object({
-			action: z
-				.unknown()
-				.describe(
-					'A single Action object — one of the documented action types (create_proposal_card / create_decision_card / create_commitment_card / create_blocker_card / create_question_card / create_note / create_priority_matrix / create_budget_allocator / link_nodes / lock_decision / update_card / group_into_frame). Must include `id` (or `from`/`to` for link_nodes) and all required fields for that type. NEVER invent a new type — for free-form jots / boxes / sticky notes use create_note.',
-				),
-		}),
-		// `execute` runs the full dispatch pipeline (normalize → infer →
-		// validate → recordAction → broadcast) and returns an INFORMATIVE
-		// result so the model can self-correct on subsequent steps.
-		//
-		// Why moved inside execute (was previously outside in the stream
-		// loop): now that stopWhen allows multiple steps, the model needs
-		// to SEE what happened to its last call before deciding the next
-		// one. The SDK feeds each tool-result back into the model context
-		// before the next step, so `execute`'s return value becomes part
-		// of the model's reasoning state.
-		//
-		// `try/catch` is mandatory: a throw here would abort the step
-		// entirely (SDK behavior). On any failure we return ok:false +
-		// the error string so the model sees "that didn't work" and can
-		// adapt instead of the whole turn dying.
-		execute: async ({ action }) => {
-			try {
-				const dispatched = dispatchAction(room, action)
-				if (dispatched.ok) {
-					return {
-						ok: true as const,
-						action: dispatched.action,
-						id:
-							'id' in dispatched.action
-								? dispatched.action.id
-								: undefined,
-						type: dispatched.action.type,
-					}
-				}
-				return { ok: false as const, error: dispatched.error }
-			} catch (err) {
-				const message =
-					err instanceof Error
-						? err.message
-						: 'dispatch threw an unknown error'
-				console.error('[agent] emit_action.execute threw:', message)
-				return { ok: false as const, error: message }
-			}
-		},
-	})
-
 	const startedAt = Date.now()
 	console.log(
 		`[agent] turn start: ctx=${context.length}B user="${userMessage.slice(0, 80)}"`,
 	)
 
 	try {
-		const result = streamText({
-			model: google(MODEL_ID),
-			system: AGENT_SYSTEM_PROMPT,
-			prompt: userPrompt,
-			temperature: 0.3,
-			tools: { emit_action: emitAction },
-			// stepCountIs(3) lets the model plan → emit → observe → adjust.
-			// At step 1 it sees the tool-result from each emit (success or
-			// error), so on step 2 it can recover (e.g. "that id didn't
-			// exist; let me create it first"). 3 is enough for compound
-			// asks like "delete X then add Y" without runaway loops. The
-			// Vercel-ai-architect agent recommended this cap as the
-			// lowest-risk high-value change in this codebase before a
-			// full ToolLoopAgent migration.
-			stopWhen: stepCountIs(3),
-		})
+		const canvasAgent = makeCanvasAgent(room)
+		const result = await canvasAgent.stream({ prompt: userPrompt })
 
 		let toolResults = 0
 
@@ -147,10 +73,15 @@ export async function* runAgentTurn(
 				continue
 			}
 			if (part.type === 'tool-result') {
-				// Dispatch already ran inside `execute`; the output tells us
-				// whether to emit an action chip or an error to the panel.
-				// biome-ignore lint/suspicious/noExplicitAny: output shape is the union returned from execute() above
-				const out = part.output as any
+				// Only `emit_action` produces canvas-affecting results. Read
+				// tools also surface here, but their output is consumed by
+				// the model (next step) — we don't need to forward it to
+				// the client. Filter by tool name.
+				// biome-ignore lint/suspicious/noExplicitAny: AI SDK tool-result discriminator union
+				const p = part as any
+				if (p.toolName !== 'emit_action') continue
+				// biome-ignore lint/suspicious/noExplicitAny: output shape is the union returned from emit_action.execute
+				const out = p.output as any
 				toolResults += 1
 				if (out?.ok && out.action) {
 					yield { kind: 'action', action: out.action }
@@ -202,6 +133,220 @@ export async function* runAgentTurn(
 		console.error(`[agent] turn failed after ${ms}ms:`, message)
 		yield { kind: 'error', message }
 		yield { kind: 'done' }
+	}
+}
+
+/**
+ * Build a `ToolLoopAgent` for one chat turn. Factory-per-request because the
+ * tool `execute` closures need to capture the live `Room` (so they can read
+ * shapes, history, memory, transcript) without us having to plumb context
+ * through `AgentStreamParameters` (which doesn't expose `experimental_context`
+ * at the call site in `ai@6.x`). The construction cost is just object
+ * allocation — no LLM round-trip — so per-request is fine.
+ *
+ * The agent runs a tool loop: at each step the model can call any tool, the
+ * SDK feeds tool results back into the next step, and the loop stops when
+ * either (a) the model produces a turn-final response with no tool calls or
+ * (b) `stepCountIs(4)` fires. We chose 4 over 3 because the new READ tools
+ * make a typical compound ask 4-step shaped:
+ *   step 1: read_canvas → step 2: emit_action (creates) →
+ *   step 3: emit_action (link_nodes) → step 4: text summary
+ */
+export function makeCanvasAgent(room: Room) {
+	return new ToolLoopAgent({
+		model: google(MODEL_ID),
+		instructions: AGENT_SYSTEM_PROMPT,
+		temperature: 0.3,
+		tools: buildTools(room),
+		// stepCountIs counts LLM calls. 4 = one read pass + plan + emit + summary
+		// in the worst case. Most turns finish in 1–2 steps. We empirically
+		// never need more than 4 for the supported vocabulary.
+		stopWhen: stepCountIs(4),
+	})
+}
+
+/**
+ * The full tool set: one writer (`emit_action`) + five readers
+ * (`read_canvas`, `find_shapes`, `count_links`, `read_memory`,
+ * `read_transcript_window`). Each tool's `execute` closes over `room` so it
+ * can read live state without round-tripping through the prompt blob.
+ *
+ * The CANVAS context blob in the user prompt is a snapshot taken once at
+ * turn start; the read tools give the model a way to re-query the same data
+ * mid-step (after it emits something, or when it needs to confirm an id it
+ * hallucinated). All read outputs are intentionally compact — under a few
+ * KB — so they don't blow out the context window.
+ */
+function buildTools(room: Room) {
+	const emitAction = tool({
+		description:
+			'Add or modify a shape on the canvas. Pass a single Action object whose `type` is one of the documented action types. Call this multiple times in a turn to emit multiple actions.',
+		inputSchema: z.object({
+			action: z
+				.unknown()
+				.describe(
+					'A single Action object — one of the documented action types (create_proposal_card / create_decision_card / create_commitment_card / create_blocker_card / create_question_card / create_note / create_geo / create_text / create_priority_matrix / create_budget_allocator / link_nodes / lock_decision / update_card / group_into_frame / delete_shapes / move_shape / resize_shape / set_shape_style / align_shapes / distribute_shapes / reorder_shapes / zoom_to_shapes / create_arrow). Must include `id` (or `from`/`to` for link_nodes) and all required fields for that type. NEVER invent a new type — for free-form jots / boxes / sticky notes use create_note.',
+				),
+		}),
+		execute: async ({ action }) => {
+			try {
+				const dispatched = dispatchAction(room, action)
+				if (dispatched.ok) {
+					return {
+						ok: true as const,
+						action: dispatched.action,
+						id:
+							'id' in dispatched.action
+								? dispatched.action.id
+								: undefined,
+						type: dispatched.action.type,
+					}
+				}
+				return { ok: false as const, error: dispatched.error }
+			} catch (err) {
+				const message =
+					err instanceof Error
+						? err.message
+						: 'dispatch threw an unknown error'
+				console.error('[agent] emit_action.execute threw:', message)
+				return { ok: false as const, error: message }
+			}
+		},
+	})
+
+	const readCanvas = tool({
+		description:
+			"Re-read the current canvas shapes (id, type, content summary). Use when you need to verify an id, find a shape by content, or confirm whether something already exists. Returns shapes in creation order; capped at 50 most-recent for very full canvases.",
+		inputSchema: z.object({}),
+		execute: async () => {
+			const all = Array.from(room.canvasShapes.entries()).map(
+				([id, v]) => ({ id, type: v.type, summary: v.summary }),
+			)
+			const truncated = all.length > 50
+			const shapes = truncated ? all.slice(-50) : all
+			return { count: all.length, truncated, shapes }
+		},
+	})
+
+	const findShapes = tool({
+		description:
+			'Find shapes matching a query (substring of the shape summary) and/or a type filter. Use to locate cards by content ("the SMB proposal", "anything red") without re-reading the whole canvas.',
+		inputSchema: z.object({
+			query: z
+				.string()
+				.optional()
+				.describe('case-insensitive substring to match against the shape summary'),
+			type: z
+				.string()
+				.optional()
+				.describe(
+					'optional action type filter (e.g. "create_proposal_card", "create_note", "create_geo")',
+				),
+			limit: z
+				.number()
+				.int()
+				.min(1)
+				.max(20)
+				.optional()
+				.describe('max results to return; defaults to 20'),
+		}),
+		execute: async ({ query, type, limit }) => {
+			const q = query?.toLowerCase()
+			const cap = limit ?? 20
+			const out: Array<{ id: string; type: string; summary: string }> = []
+			for (const [id, v] of room.canvasShapes.entries()) {
+				if (type && v.type !== type) continue
+				if (q && !v.summary.toLowerCase().includes(q)) continue
+				out.push({ id, type: v.type, summary: v.summary })
+				if (out.length >= cap) break
+			}
+			return { count: out.length, matches: out }
+		},
+	})
+
+	const countLinks = tool({
+		description:
+			'For a given shape id, count its incoming and outgoing links (link_nodes actions) and list the neighbor ids. Use to find "the most-linked proposal" or check whether a card is connected before deleting it.',
+		inputSchema: z.object({
+			id: z.string().describe('the shape id to inspect'),
+		}),
+		execute: async ({ id }) => {
+			const incoming: Array<{ from: string; kind: string }> = []
+			const outgoing: Array<{ to: string; kind: string }> = []
+			for (const a of room.actionHistory) {
+				if (a.type !== 'link_nodes') continue
+				if (a.to === id) incoming.push({ from: a.from, kind: a.kind })
+				if (a.from === id) outgoing.push({ to: a.to, kind: a.kind })
+			}
+			return {
+				id,
+				incoming: incoming.length,
+				outgoing: outgoing.length,
+				total: incoming.length + outgoing.length,
+				neighbors: { incoming, outgoing },
+			}
+		},
+	})
+
+	const readMemory = tool({
+		description:
+			"Read the canvas's long-term compressed memory (voice thread narrative, chat thread narrative, shared meta: tensions/themes/abandoned/followups). Use when the user references something that happened earlier than the recent action window.",
+		inputSchema: z.object({}),
+		execute: async () => {
+			const m = room.memory
+			if (!m) {
+				return {
+					empty: true as const,
+					note: 'no long-term memory yet for this canvas',
+				}
+			}
+			return {
+				empty: false as const,
+				voiceThread: m.voiceThread,
+				chatThread: m.chatThread,
+				sharedMeta: m.sharedMeta,
+				coverage: {
+					voiceMsgsCovered: m.voiceMsgsCovered,
+					chatMsgsCovered: m.chatMsgsCovered,
+				},
+			}
+		},
+	})
+
+	const readTranscriptWindow = tool({
+		description:
+			'Read the last ~90s of finalized speech segments (speaker + text + timestamp). Use to confirm what was said when the user says "what I just said", or to ground a card in actual recent dialogue.',
+		inputSchema: z.object({
+			limit: z
+				.number()
+				.int()
+				.min(1)
+				.max(40)
+				.optional()
+				.describe('max segments to return (most recent first); defaults to 20'),
+		}),
+		execute: async ({ limit }) => {
+			const segs = room.buffer.window()
+			const cap = limit ?? 20
+			const tail = segs.slice(-cap)
+			return {
+				count: tail.length,
+				segments: tail.map((s) => ({
+					speaker: s.speaker,
+					text: s.text,
+					ts: s.ts,
+				})),
+			}
+		},
+	})
+
+	return {
+		emit_action: emitAction,
+		read_canvas: readCanvas,
+		find_shapes: findShapes,
+		count_links: countLinks,
+		read_memory: readMemory,
+		read_transcript_window: readTranscriptWindow,
 	}
 }
 
