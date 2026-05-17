@@ -13,16 +13,37 @@ const app = next({ dev })
 const handle = app.getRequestHandler()
 
 async function onTick(room: Room) {
+	// Per-room mutex: skip overlapping ticks. The voice MODE-B ReAct path
+	// can run 8-12s, longer than the 3s debounce. If a second tick fires
+	// while the first is still in flight, we drop it — the next debounce
+	// will refire with a fresher transcript window. Queueing a stale tick
+	// just doubles the broadcast load with worse data.
+	if (room.orchestratorBusy) {
+		console.log(`[orchestrator] tick skipped (busy)`)
+		return
+	}
+	const work = (async () => {
+		try {
+			const actions = await runOrchestratorTick(room)
+			// Voice MODE-B path records + broadcasts inline via its emit tool
+			// and returns []. Voice MODE-A (single-shot generateObject) and
+			// every legacy path returns the action batch here for us to
+			// record + broadcast. Same loop handles both.
+			for (const a of actions) {
+				room.recordAction(a)
+			}
+			if (actions.length) {
+				room.broadcast({ kind: 'actions', actions })
+			}
+		} catch (err) {
+			console.error('[orchestrator] tick failed', err)
+		}
+	})()
+	room.orchestratorBusy = work
 	try {
-		const actions = await runOrchestratorTick(room)
-		for (const a of actions) {
-			room.recordAction(a)
-		}
-		if (actions.length) {
-			room.broadcast({ kind: 'actions', actions })
-		}
-	} catch (err) {
-		console.error('[orchestrator] tick failed', err)
+		await work
+	} finally {
+		room.orchestratorBusy = null
 	}
 }
 

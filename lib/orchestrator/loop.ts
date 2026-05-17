@@ -3,6 +3,8 @@ import { generateObject, NoObjectGeneratedError } from 'ai'
 import type { Room } from '@server/room'
 import { ActionStreamSchema, type Action } from '@/lib/actions/schema'
 import { SYSTEM_PROMPT, buildUserPrompt } from '@/lib/orchestrator/prompt'
+import { makeVoiceAgent } from '@/lib/orchestrator/voice-agent'
+import type { TranscriptSegment } from '@/lib/speechmatics/client'
 
 // gemini-3-flash-preview — the full Flash tier. We moved off the lite variant
 // (`gemini-3.1-flash-lite`) because the orchestrator's job is
@@ -40,6 +42,18 @@ export async function runOrchestratorTick(room: Room): Promise<Action[]> {
 	// that are < 2.5s apart into a single utterance line. The coalesced version
 	// is what we hand to Gemini; the raw buffer stays for the per-segment forward.
 	const transcript = coalesceUtterances(rawTranscript, 2500)
+
+	// MODE-B routing. A compound canvas command (flowchart, rank, group,
+	// align, etc.) goes through the ReAct voice agent — it can read the
+	// canvas mid-turn and self-correct. Everything else (passive capture)
+	// stays on the single-shot generateObject path below, where the 3-second
+	// debounce can't afford multi-step latency. The MODE-B agent records +
+	// broadcasts inline via its emit tool and returns []; the caller's
+	// record-and-broadcast loop is a no-op for that branch.
+	if (isModeBCommand(transcript)) {
+		await runVoiceModeBTick(room, transcript)
+		return []
+	}
 
 	const canvas = Array.from(room.canvasShapes.entries()).map(([id, v]) => ({
 		id,
@@ -464,3 +478,138 @@ function coerceSplit(s: unknown): unknown {
 	const asNum2 = Number(b)
 	return { label: String(a).trim(), amountPct: Number.isNaN(asNum2) ? 0 : asNum2 }
 }
+
+// --- MODE-B routing ---------------------------------------------------------
+// A cheap regex-based classifier that decides whether the coalesced
+// transcript window contains a compound canvas command — the kind of
+// utterance that benefits from multi-step ReAct (read canvas → emit →
+// self-correct). Anything that looks like passive conversation stays on
+// the single-shot generateObject path for latency.
+//
+// The classifier is intentionally permissive on the false-positive side: a
+// stray "draw a line under that" sent to ReAct just costs an extra few
+// seconds of latency. The false-negative side is what we care about — a
+// real flowchart command misclassified as MODE-A drops the arrows again.
+
+const VERB_PATTERN =
+	/\b(draw|create|add|make|build|show|put|place|insert|connect|link|delete|remove|move|align|rank|order|sort|recolor|color|paint|resize|group|distribute|zoom|focus|fit|lock|highlight)\b/i
+
+const TARGET_PATTERN =
+	/\b(flowchart|flow chart|diagram|chart|matrix|gantt|arrow|arrows|box|boxes|rectangle|square|circle|ellipse|triangle|diamond|sticky|note|notes|card|cards|canvas|whiteboard|frame|group|priority|budget|allocator|split|splits|step|steps|node|nodes|column|columns|proposal|proposals|decision|decisions|blocker|blockers|commitment|commitments|question|questions|item|items)\b/i
+
+const COMPOUND_HINT_PATTERN =
+	/\b(and arrow|with arrow|with arrows|then arrow|then connect|then link|with steps|connecting them|connected by)\b/i
+
+/**
+ * Return true if the coalesced transcript window contains a compound canvas
+ * command. Exported for unit testing — see tests/voice-mode-b.test.ts.
+ *
+ * Heuristic: imperative verb + canvas target noun in the SAME utterance,
+ * OR an explicit "with arrows / connect them" compound hint.
+ *
+ * False-positive cost: an extra ReAct tick (~10s) instead of a single-shot
+ * tick (~5s). False-negative cost: a real compound command falls back to
+ * single-shot generateObject and loses the multi-step reasoning we just
+ * built — the exact bug we're trying to fix. Tune toward false-positives.
+ */
+export function isModeBCommand(transcript: TranscriptSegment[]): boolean {
+	if (transcript.length === 0) return false
+	// We only classify based on the MOST-RECENT utterance(s) — a flowchart
+	// command issued 60 seconds ago is already in the action history; we'd
+	// re-fire it on every subsequent tick if we matched the full window.
+	const tail = transcript.slice(-3)
+	for (const seg of tail) {
+		const text = seg.text || ''
+		if (COMPOUND_HINT_PATTERN.test(text)) return true
+		if (VERB_PATTERN.test(text) && TARGET_PATTERN.test(text)) return true
+	}
+	return false
+}
+
+/**
+ * MODE-B branch: spin up the voice ReAct agent for one tick. The agent's
+ * emit tool records + broadcasts inline, so this function returns nothing
+ * useful to the caller — the canvas state is fully updated by the time we
+ * resolve. Any per-step errors are streamed to the console; we don't
+ * propagate them up because a partial MODE-B turn is still better than a
+ * canvas that didn't move at all.
+ */
+async function runVoiceModeBTick(
+	room: Room,
+	transcript: TranscriptSegment[],
+): Promise<void> {
+	const startedAt = Date.now()
+	console.log(
+		`[voice-agent] MODE-B tick start: ${transcript.length} segs, ${room.canvasShapes.size} on canvas`,
+	)
+	for (const seg of transcript.slice(-3)) {
+		console.log(`  [${seg.speaker}] ${seg.text}`)
+	}
+
+	// Build the prompt body: the same shape the chat agent gets, minus
+	// the chat history (voice has no chat-turn context). The transcript
+	// IS the user's input, so it gets the "USER COMMAND" framing.
+	const canvas = Array.from(room.canvasShapes.entries())
+		.map(([id, v]) => `  ${id} (${v.type}): ${v.summary}`)
+		.join('\n')
+	const recent = room.actionHistory.slice(-10).map((a) => `  - ${a.type}${'id' in a ? ` ${a.id}` : ''}`).join('\n')
+	const transcriptBlock = transcript
+		.slice(-6)
+		.map((s) => `  [${s.speaker}] ${s.text}`)
+		.join('\n')
+
+	const userPrompt = [
+		`CANVAS_SHAPES (${room.canvasShapes.size}):`,
+		canvas || '  (empty)',
+		'',
+		`RECENT_ACTIONS (${room.actionHistory.slice(-10).length}):`,
+		recent || '  (none)',
+		'',
+		`USER COMMAND (most-recent 6 transcript segments):`,
+		transcriptBlock,
+	].join('\n')
+
+	try {
+		const agent = makeVoiceAgent(room)
+		const result = await agent.stream({ prompt: userPrompt })
+		// Drain the stream. The emit_action tool records + broadcasts on
+		// each successful action; we read fullStream just to keep the
+		// promise alive until the agent finishes its step loop and to
+		// surface tool-error events to the console.
+		let emits = 0
+		for await (const part of result.fullStream) {
+			if (part.type === 'tool-result') {
+				// biome-ignore lint/suspicious/noExplicitAny: union-shape access
+				const p = part as any
+				if (p.toolName === 'emit_action') {
+					const out = p.output as { ok?: boolean }
+					if (out?.ok) emits += 1
+				}
+			} else if (part.type === 'tool-error') {
+				// biome-ignore lint/suspicious/noExplicitAny: union-shape access
+				const err = part as any
+				const message =
+					err.error instanceof Error
+						? err.error.message
+						: typeof err.error === 'string'
+							? err.error
+							: 'tool invocation failed'
+				console.warn('[voice-agent] tool-error:', message)
+			} else if (part.type === 'error') {
+				console.error(
+					'[voice-agent] stream error:',
+					part.error instanceof Error ? part.error.message : part.error,
+				)
+			}
+		}
+		console.log(
+			`[voice-agent] MODE-B tick done in ${Date.now() - startedAt}ms; ${emits} action(s) emitted`,
+		)
+	} catch (err) {
+		console.error(
+			`[voice-agent] MODE-B tick failed after ${Date.now() - startedAt}ms:`,
+			err instanceof Error ? err.message : err,
+		)
+	}
+}
+

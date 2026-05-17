@@ -86,6 +86,14 @@ export class Room {
 	// is loaded — we gate appends behind this flag.
 	hydrated = false
 	private hydrationPromise: Promise<void> | null = null
+	// Per-room orchestrator mutex. The voice MODE-B ReAct path can spend
+	// 8-12s in a single tick (read → emit → emit) which is longer than
+	// the 3s debounce. Without this, two ticks would race and both write
+	// to actionHistory + broadcast stale state. When set, `server/index.ts`
+	// skips the new tick — the next debounce 3s later will fire with a
+	// fresher transcript window anyway, which is strictly better than
+	// queueing a stale tick.
+	orchestratorBusy: Promise<void> | null = null
 
 	constructor(id: string, onTick: (room: Room) => Promise<void>) {
 		this.id = id
