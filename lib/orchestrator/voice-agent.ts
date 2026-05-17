@@ -3,6 +3,7 @@ import { ToolLoopAgent, stepCountIs, tool } from 'ai'
 import { z } from 'zod'
 import type { Action } from '@/lib/actions/schema'
 import { buildReadTools } from '@/lib/agent/tools'
+import { BroadcastThrottle } from '@/lib/agent/broadcast-throttle'
 import { prepareAction } from '@/lib/actions/dispatch'
 import { VOICE_AGENT_SYSTEM_PROMPT } from '@/lib/orchestrator/voice-agent-prompt'
 import type { Room } from '@server/room'
@@ -50,18 +51,21 @@ const MODEL_ID = 'gemini-3-flash-preview'
  */
 export function makeVoiceAgent(room: Room) {
 	const dedupSet = new Set<string>()
+	const throttle = new BroadcastThrottle(120)
 	const reads = buildReadTools(room)
-	const emit = buildVoiceEmitTool(room, dedupSet)
+	const emit = buildVoiceEmitTool(room, dedupSet, throttle)
 	return new ToolLoopAgent({
 		model: google(MODEL_ID),
 		instructions: VOICE_AGENT_SYSTEM_PROMPT,
 		temperature: 0.3,
 		tools: { emit_action: emit, ...reads },
-		// Three steps: typical compound voice command finishes in
-		// read → emit → (optional) emit-correction. Step 4 (text summary)
-		// is wasted because voice has no chat panel surface to summarize
-		// into. Cap kept low so a single tick never blows the 3s debounce.
-		stopWhen: stepCountIs(3),
+		// Eight steps: paired with the "STREAMING — one action per step"
+		// guidance in the voice prompt, this gives a compound command
+		// room to lay down ~6 shapes one at a time while the WS client
+		// sees them appear progressively. Voice latency is still
+		// bounded by the 3s debounce — the mutex on `room.orchestratorBusy`
+		// drops overlapping ticks so a slow stream-out doesn't queue.
+		stopWhen: stepCountIs(8),
 	})
 }
 
@@ -73,7 +77,11 @@ export function makeVoiceAgent(room: Room) {
  *    on a duplicate emit and can pivot (e.g. drop it, or switch to
  *    update_card)
  */
-function buildVoiceEmitTool(room: Room, dedupSet: Set<string>) {
+function buildVoiceEmitTool(
+	room: Room,
+	dedupSet: Set<string>,
+	throttle: BroadcastThrottle = new BroadcastThrottle(0),
+) {
 	return tool({
 		description:
 			'Apply one Action to the canvas. Pass a single Action object whose `type` is one of the documented action types. Call multiple times in a turn to emit multiple actions. Returns { ok, action, id, type } on success or { ok: false, error } on failure (invalid payload, invented id reference, duplicate).',
@@ -99,7 +107,11 @@ function buildVoiceEmitTool(room: Room, dedupSet: Set<string>) {
 				}
 			}
 			try {
+				// Record SYNCHRONOUSLY so sibling tool calls in the same step
+				// see this shape in room.canvasShapes for their own ref
+				// validation. Only the WS broadcast is throttled.
 				room.recordAction(action, 'voice')
+				await throttle.awaitTurn()
 				room.broadcast({ kind: 'actions', actions: [action] })
 				console.log(
 					`[voice-agent] emitted ${action.type}${'id' in action ? ` ${action.id}` : ''}`,

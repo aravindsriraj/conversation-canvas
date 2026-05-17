@@ -5,6 +5,7 @@ import type { Action } from '@/lib/actions/schema'
 import { AGENT_SYSTEM_PROMPT } from '@/lib/agent/prompt'
 import { buildAgentContext } from '@/lib/agent/context'
 import { buildReadTools } from '@/lib/agent/tools'
+import { BroadcastThrottle } from '@/lib/agent/broadcast-throttle'
 import { prepareAction } from '@/lib/actions/dispatch'
 import type { Room } from '@server/room'
 
@@ -171,21 +172,28 @@ export async function* runAgentTurn(
  * The agent runs a tool loop: at each step the model can call any tool, the
  * SDK feeds tool results back into the next step, and the loop stops when
  * either (a) the model produces a turn-final response with no tool calls or
- * (b) `stepCountIs(4)` fires. We chose 4 over 3 because the new READ tools
- * make a typical compound ask 4-step shaped:
- *   step 1: read_canvas → step 2: emit_action (creates) →
- *   step 3: emit_action (link_nodes) → step 4: text summary
+ * (b) `stepCountIs(15)` fires.
+ *
+ * The 15-step cap pairs with the "STREAMING — one action per step" prompt
+ * guidance: we want the model to emit ONE action per step (so the client
+ * sees shapes appear progressively, not in a batch dump). A 10-shape
+ * compound diagram now needs 10+ steps, so the cap had to climb. Most
+ * single-action turns still finish in 1-2 steps.
+ *
+ * The `BroadcastThrottle` is a belt-and-suspenders complement to the
+ * prompt: when the model defies the guidance and emits multiple tool
+ * calls in parallel within a step, the throttle serializes their
+ * broadcasts so the client still sees a visible stream rather than a
+ * burst. One throttle per agent instance = one per turn.
  */
 export function makeCanvasAgent(room: Room) {
+	const throttle = new BroadcastThrottle(120)
 	return new ToolLoopAgent({
 		model: google(MODEL_ID),
 		instructions: AGENT_SYSTEM_PROMPT,
 		temperature: 0.3,
-		tools: buildTools(room),
-		// stepCountIs counts LLM calls. 4 = one read pass + plan + emit + summary
-		// in the worst case. Most turns finish in 1–2 steps. We empirically
-		// never need more than 4 for the supported vocabulary.
-		stopWhen: stepCountIs(4),
+		tools: buildTools(room, throttle),
+		stopWhen: stepCountIs(15),
 	})
 }
 
@@ -203,8 +211,13 @@ export function makeCanvasAgent(room: Room) {
  */
 // Exported for unit testing — direct invocation of each tool's `execute`
 // closure against a stub `Room` lets us cover read-tool behavior without
-// spinning up the full agent stream.
-export function buildTools(room: Room) {
+// spinning up the full agent stream. The throttle is optional in the
+// signature so existing tests (which don't care about timing) can pass
+// a no-op throttle (gapMs=0) without ceremony.
+export function buildTools(
+	room: Room,
+	throttle: BroadcastThrottle = new BroadcastThrottle(0),
+) {
 	const emitAction = tool({
 		description:
 			'Add or modify a shape on the canvas. Pass a single Action object whose `type` is one of the documented action types. Call this multiple times in a turn to emit multiple actions.',
@@ -217,19 +230,44 @@ export function buildTools(room: Room) {
 		}),
 		execute: async ({ action }) => {
 			try {
-				const dispatched = dispatchAction(room, action)
-				if (dispatched.ok) {
-					return {
-						ok: true as const,
-						action: dispatched.action,
-						id:
-							'id' in dispatched.action
-								? dispatched.action.id
-								: undefined,
-						type: dispatched.action.type,
-					}
+				// Stage 1: normalize + validate + ref-check + record. Synchronous.
+				// We record BEFORE the throttle wait so subsequent emit_action
+				// calls in the same step (which run concurrently) see this
+				// shape in room.canvasShapes for their own ref-validation
+				// step. Only the WS broadcast is staggered — internal state
+				// is always up-to-date.
+				const dispatched = dispatchActionAndRecord(room, action)
+				if (!dispatched.ok) {
+					return { ok: false as const, error: dispatched.error }
 				}
-				return { ok: false as const, error: dispatched.error }
+
+				// Stage 2: throttled broadcast. Parallel tool-call siblings
+				// stack up on the throttle's promise chain and get released
+				// `gapMs` apart, so the client sees shapes appear in sequence
+				// rather than all-at-once. First caller (or any caller after
+				// a long quiet gap) resolves immediately.
+				await throttle.awaitTurn()
+				room.broadcast({
+					kind: 'actions',
+					actions: [dispatched.action],
+				})
+				console.log(
+					`[agent] emitted ${dispatched.action.type}${
+						'id' in dispatched.action
+							? ` ${dispatched.action.id}`
+							: ''
+					}`,
+				)
+
+				return {
+					ok: true as const,
+					action: dispatched.action,
+					id:
+						'id' in dispatched.action
+							? dispatched.action.id
+							: undefined,
+					type: dispatched.action.type,
+				}
 			} catch (err) {
 				const message =
 					err instanceof Error
@@ -282,20 +320,36 @@ export function buildTools(room: Room) {
 }
 
 /**
- * Validate a raw action object via the shared prepareAction pipeline, then
- * persist + broadcast it on success. Returns either the validated Action or
- * a short error string for the runner to surface to the client.
+ * Validate a raw action object via the shared prepareAction pipeline and
+ * commit it to room state. Returns the validated Action on success;
+ * caller broadcasts after the throttle gate (see emit_action.execute).
+ *
+ * "Record" here means: append to `room.actionHistory`, update the
+ * `canvasShapes` summary index, persist to Postgres (fire-and-forget).
+ * Broadcasting (sending the WS message to connected clients) is the
+ * caller's responsibility and is intentionally separated so the
+ * BroadcastThrottle can serialize WS emissions across parallel
+ * `emit_action` calls without blocking internal state updates.
+ *
+ * Why not bundle the broadcast inline: parallel tool calls within a
+ * single ToolLoopAgent step all run their `execute` concurrently. If
+ * broadcast were inline, all five emit_action calls would fire their
+ * WS messages within a millisecond — the client sees a burst dump.
+ * Keeping `recordAction` here (sync, immediate) means sibling tool
+ * calls can still validate refs against the live `canvasShapes` map;
+ * staggering only the broadcast preserves both invariants.
  *
  * We deliberately do NOT run the orchestrator's `filterDuplicateCreates`
- * pass here — the chat agent is acting on direct user intent ("add a
- * question card"), so silently dropping its emission as a "duplicate" would
- * be confusing. The prompt already instructs the model to use update_card
+ * pass here — the chat agent acts on direct user intent ("add a
+ * question card"), so silently dropping its emission as a "duplicate"
+ * would be confusing. The prompt instructs the model to use update_card
  * on existing ids, which is the right behavior for refinement.
  *
- * The voice MODE-B agent uses the same prepareAction but runs a per-action
- * dedup step before record+broadcast — see lib/orchestrator/voice-agent.ts.
+ * The voice MODE-B agent uses the same prepareAction (via
+ * lib/orchestrator/voice-agent.ts) plus an additional per-action dedup
+ * step before record+broadcast.
  */
-function dispatchAction(
+function dispatchActionAndRecord(
 	room: Room,
 	raw: unknown,
 ): { ok: true; action: Action } | { ok: false; error: string } {
@@ -305,13 +359,9 @@ function dispatchAction(
 	const action = prepared.action
 	try {
 		room.recordAction(action, 'chat')
-		room.broadcast({ kind: 'actions', actions: [action] })
-		console.log(
-			`[agent] emitted ${action.type}${'id' in action ? ` ${action.id}` : ''}`,
-		)
 		return { ok: true, action }
 	} catch (err) {
-		const message = err instanceof Error ? err.message : 'broadcast failed'
+		const message = err instanceof Error ? err.message : 'recordAction failed'
 		console.error('[agent] dispatch failed:', message)
 		return { ok: false, error: message }
 	}
