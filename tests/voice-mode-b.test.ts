@@ -48,6 +48,20 @@ describe('isModeBCommand — voice MODE-B classifier', () => {
 		)
 	})
 
+	it('matches "let\'s add some colors" (no canvas-noun, just color words)', () => {
+		expect(
+			isModeBCommand([seg("Let's add some colors as well.")]),
+		).toBe(true)
+	})
+
+	it('matches "make the boxes orange" (color word as target)', () => {
+		expect(isModeBCommand([seg('Make the boxes orange.')])).toBe(true)
+	})
+
+	it('matches "color the proposals blue"', () => {
+		expect(isModeBCommand([seg('Color the proposals blue.')])).toBe(true)
+	})
+
 	it('matches compound hint "with arrows" even without a verb noun pair', () => {
 		expect(
 			isModeBCommand([seg('Three steps connecting them with arrows.')]),

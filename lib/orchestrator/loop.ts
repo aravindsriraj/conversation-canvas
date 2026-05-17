@@ -495,7 +495,7 @@ const VERB_PATTERN =
 	/\b(draw|create|add|make|build|show|put|place|insert|connect|link|delete|remove|move|align|rank|order|sort|recolor|color|paint|resize|group|distribute|zoom|focus|fit|lock|highlight)\b/i
 
 const TARGET_PATTERN =
-	/\b(flowchart|flow chart|diagram|chart|matrix|gantt|arrow|arrows|box|boxes|rectangle|square|circle|ellipse|triangle|diamond|sticky|note|notes|card|cards|canvas|whiteboard|frame|group|priority|budget|allocator|split|splits|step|steps|node|nodes|column|columns|proposal|proposals|decision|decisions|blocker|blockers|commitment|commitments|question|questions|item|items)\b/i
+	/\b(flowchart|flow chart|diagram|chart|matrix|gantt|arrow|arrows|box|boxes|rectangle|square|circle|ellipse|triangle|diamond|sticky|note|notes|card|cards|canvas|whiteboard|frame|group|priority|budget|allocator|split|splits|step|steps|node|nodes|column|columns|proposal|proposals|decision|decisions|blocker|blockers|commitment|commitments|question|questions|item|items|color|colors|colored|colour|colours|red|blue|green|yellow|orange|violet|pink|grey|gray|black|white|bold|fill|font|style|styling|larger|smaller|wider|taller)\b/i
 
 const COMPOUND_HINT_PATTERN =
 	/\b(and arrow|with arrow|with arrows|then arrow|then connect|then link|with steps|connecting them|connected by)\b/i
