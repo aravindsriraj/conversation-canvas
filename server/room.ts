@@ -381,11 +381,18 @@ function summarizeAction(a: Action): string {
 		case 'create_text':
 			return `text: "${a.content.slice(0, 200)}"`
 		case 'create_priority_matrix':
-			return `matrix: ${a.items.length} items`
+			// Include each item's id + label so the chat agent can target a
+			// specific row in update_card patches ("remove the internal
+			// tooling item" needs visibility into the item.id and label).
+			return `matrix [${a.items
+				.map((i) => `${i.id}:"${i.label.slice(0, 40)}"`)
+				.join(', ')}]`
 		case 'create_budget_allocator':
 			return `budget: ${a.splits.map((s) => `${s.label} ${s.amountPct}%`).join(', ')}`
 		case 'create_gantt':
-			return `gantt: ${a.items.length} items`
+			return `gantt [${a.items
+				.map((i) => `${i.id}:"${i.label.slice(0, 40)}"`)
+				.join(', ')}]`
 		case 'create_bespoke_widget':
 			return `bespoke widget`
 		case 'delete_shapes':

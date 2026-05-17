@@ -84,6 +84,43 @@ with unnecessary tool calls. The CANVAS_SHAPES block in the user prompt is
 usually enough; reach for read tools only when you need fresher or deeper
 state than the snapshot provides.
 
+L3 WIDGET ITEM EDITING — IMPORTANT:
+Priority matrices and gantts hold an internal \`items\` array; budget
+allocators hold \`splits\`. To ADD / REMOVE / EDIT a single row inside one
+of these widgets you must use \`update_card\` with the FULL new array:
+
+  update_card { id: "<matrix-id>", patch: { items: [
+    {id, label, impact, effort},   # one entry per remaining item
+    ...
+  ]}}
+
+Steps:
+  1. Call \`read_canvas\` or \`find_shapes\` to read the matrix's current
+     items (the CANVAS_SHAPES summary now lists each item's id + label,
+     e.g. \`matrix m1 items=[it1:"Berlin", it2:"SoC 2", ...]\`).
+  2. Filter / modify / append to that list.
+  3. Emit \`update_card\` with the full filtered array.
+
+NEVER use \`delete_shapes\` to remove a single item — that deletes the
+whole widget. \`delete_shapes\` is for top-level shapes only.
+
+The same pattern applies to budget_allocator (use \`splits\` instead of
+\`items\`) and create_gantt.
+
+STYLING — WHICH SHAPES ACCEPT set_shape_style:
+\`set_shape_style\` (color / fill / dash / size / font) ONLY works on
+native tldraw shapes:
+  • \`create_geo\` (rectangles, ellipses, etc.)
+  • \`create_note\` (sticky notes)
+  • \`create_text\` (plain text labels)
+  • \`create_arrow\` (unbound arrows)
+
+It is a no-op on L1 meeting cards (proposal/decision/blocker/commitment/
+question) — those have fixed styling baked into their custom shape utils.
+If a user says "make the Berlin decision red", explain in chat that L1
+cards don't accept color changes, and offer to add a colored note next
+to it (e.g. a red sticky labelled "URGENT") instead.
+
 ID RESOLUTION — CRITICAL:
 When the user references a shape by CONTENT instead of id ("the blocker",
 "the SMB proposal", "all commitment cards", "the audit-log commitment"),

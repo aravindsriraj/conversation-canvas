@@ -470,5 +470,98 @@ describe('agent buildTools()', () => {
 			})
 			expect(out.ok).toBe(true)
 		})
+
+		// --- set_shape_style guardrails ---
+		// L1 meeting cards (custom shapes) have no color/fill/dash/size/font
+		// props, so set_shape_style silently no-ops in the client apply path.
+		// The dispatcher should reject these so the agent surfaces a clear
+		// message to the user instead.
+
+		it('rejects set_shape_style against a decision card (custom L1)', async () => {
+			const room = makeRoomStub({
+				canvasShapes: new Map([
+					['d1', { type: 'create_decision_card', summary: 'D: Hire two PMs' }],
+				]),
+			})
+			const tools = buildTools(room)
+			const out = await callTool<EmitActionOut>(tools.emit_action, {
+				action: { type: 'set_shape_style', id: 'd1', color: 'red' },
+			})
+			expect(out.ok).toBe(false)
+			if (!out.ok) {
+				expect(out.error).toMatch(/set_shape_style/)
+				expect(out.error).toMatch(/L1 meeting cards|fixed styling/)
+			}
+			expect(room.recordAction).not.toHaveBeenCalled()
+		})
+
+		it('accepts set_shape_style against a create_note (native shape)', async () => {
+			const room = makeRoomStub({
+				canvasShapes: new Map([
+					['n1', { type: 'create_note', summary: 'sticky' }],
+				]),
+			})
+			const tools = buildTools(room)
+			const out = await callTool<EmitActionOut>(tools.emit_action, {
+				action: { type: 'set_shape_style', id: 'n1', color: 'red' },
+			})
+			expect(out.ok).toBe(true)
+			expect(room.recordAction).toHaveBeenCalledOnce()
+		})
+
+		it('accepts set_shape_style against a create_geo', async () => {
+			const room = makeRoomStub({
+				canvasShapes: new Map([
+					['g1', { type: 'create_geo', summary: 'rectangle' }],
+				]),
+			})
+			const tools = buildTools(room)
+			const out = await callTool<EmitActionOut>(tools.emit_action, {
+				action: {
+					type: 'set_shape_style',
+					id: 'g1',
+					fill: 'solid',
+					color: 'blue',
+				},
+			})
+			expect(out.ok).toBe(true)
+		})
+
+		// --- L3 widget item editing pattern (priority_matrix items) ---
+		// update_card with a `items` patch is the canonical way to edit
+		// matrix rows. The agent now has visibility into item ids via the
+		// expanded summarizeAction output, so this round-trip should pass
+		// when the matrix exists.
+
+		it('allows update_card patching matrix items array', async () => {
+			const room = makeRoomStub({
+				canvasShapes: new Map([
+					[
+						'm1',
+						{
+							type: 'create_priority_matrix',
+							summary:
+								'matrix [it1:"Berlin", it2:"SoC 2", it3:"Lisbon", it4:"Internal tooling"]',
+						},
+					],
+				]),
+			})
+			const tools = buildTools(room)
+			const out = await callTool<EmitActionOut>(tools.emit_action, {
+				action: {
+					type: 'update_card',
+					id: 'm1',
+					patch: {
+						items: [
+							{ id: 'it1', label: 'Berlin', impact: 0.9, effort: 0.9 },
+							{ id: 'it2', label: 'SoC 2', impact: 0.9, effort: 0.5 },
+							{ id: 'it3', label: 'Lisbon', impact: 0.5, effort: 0.5 },
+						],
+					},
+				},
+			})
+			expect(out.ok).toBe(true)
+			expect(room.recordAction).toHaveBeenCalledOnce()
+		})
 	})
 })

@@ -518,6 +518,18 @@ function dispatchAction(
  * client-side ID_MAP has no entry. Silent failure is the worst UX — surfacing
  * a clear error here turns a bug into one extra step.
  */
+// Native tldraw shape action types that accept set_shape_style. L1 meeting
+// cards (proposal/decision/etc.) are custom shapes without color/fill/dash
+// props — set_shape_style on them silently no-ops in the apply pipeline,
+// which the agent currently can't tell apart from a successful styling.
+// Listing the supported types here lets us return a clear error instead.
+const STYLABLE_TYPES = new Set([
+	'create_geo',
+	'create_note',
+	'create_text',
+	'create_arrow',
+])
+
 function validateActionRefs(action: Action, room: Room): string | null {
 	const exists = (id: string) => room.canvasShapes.has(id)
 	switch (action.type) {
@@ -525,11 +537,20 @@ function validateActionRefs(action: Action, room: Room): string | null {
 		case 'lock_decision':
 		case 'move_shape':
 		case 'resize_shape':
-		case 'set_shape_style':
 			if (!exists(action.id)) {
 				return `${action.type}: id "${action.id}" not found on canvas — call find_shapes or read_canvas to get the real ids before retrying`
 			}
 			return null
+		case 'set_shape_style': {
+			if (!exists(action.id)) {
+				return `set_shape_style: id "${action.id}" not found on canvas — call find_shapes or read_canvas to get the real ids before retrying`
+			}
+			const shape = room.canvasShapes.get(action.id)
+			if (shape && !STYLABLE_TYPES.has(shape.type)) {
+				return `set_shape_style: shape "${action.id}" is a ${shape.type} — L1 meeting cards (proposal/decision/blocker/commitment/question) have fixed styling and don't accept set_shape_style. Add a colored create_note next to it instead, or use update_card to change its content.`
+			}
+			return null
+		}
 		case 'link_nodes': {
 			const missing: string[] = []
 			if (!exists(action.from)) missing.push(action.from)

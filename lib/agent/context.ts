@@ -136,11 +136,15 @@ function summarizeAction(a: Action): string {
 		case 'create_text':
 			return `+text ${id}: "${a.content.slice(0, 160)}"`
 		case 'create_priority_matrix':
-			return `+matrix ${id}: ${a.items.length} items`
+			return `+matrix ${id} items=[${a.items
+				.map((i) => `${i.id}:"${i.label.slice(0, 40)}"`)
+				.join(', ')}]`
 		case 'create_budget_allocator':
 			return `+budget ${id}: ${a.splits.map((s) => `${s.label} ${s.amountPct}%`).join(', ')}`
 		case 'create_gantt':
-			return `+gantt ${id}: ${a.items.length} items`
+			return `+gantt ${id} items=[${a.items
+				.map((i) => `${i.id}:"${i.label.slice(0, 40)}"`)
+				.join(', ')}]`
 		case 'create_bespoke_widget':
 			return `+widget ${id}`
 		case 'link_nodes':
