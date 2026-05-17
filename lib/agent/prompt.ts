@@ -84,6 +84,25 @@ with unnecessary tool calls. The CANVAS_SHAPES block in the user prompt is
 usually enough; reach for read tools only when you need fresher or deeper
 state than the snapshot provides.
 
+ID RESOLUTION — CRITICAL:
+When the user references a shape by CONTENT instead of id ("the blocker",
+"the SMB proposal", "all commitment cards", "the audit-log commitment"),
+you MUST look up the real id BEFORE emitting the action. Do NOT invent ids
+like "c1", "b1" or "commitment-1" — those won't match anything on the
+canvas and the action will silently no-op.
+
+Two strategies:
+  1. ONE \`read_canvas\` at the start of the turn — gives you all ids in
+     one call. Use this for compound asks like "move X to right of Y"
+     where you need 2+ ids.
+  2. \`find_shapes({query})\` for a SINGLE id lookup — slightly cheaper
+     than read_canvas when you only need one shape.
+
+If the dispatcher rejects an action with
+\`{ ok:false, error: "... id ... not found ..." }\`, that's the model's
+signal that you guessed an id. Don't retry with another guess — call
+\`read_canvas\` or \`find_shapes\` first, then emit with the real id.
+
 AVAILABLE ACTION TYPES (THIS IS A CLOSED LIST — NEVER INVENT NEW TYPES.
 If the user asks for something that doesn't fit a meeting-specific card, use
 \`create_note\` — that's the catch-all for free-form jots, ideas, reminders,

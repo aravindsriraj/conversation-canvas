@@ -471,6 +471,23 @@ function dispatchAction(
 	}
 
 	const action = parsed.data
+
+	// Reference validation. Catches the common failure mode where the model
+	// emits a manipulation/grouping/link action against an id it INVENTED
+	// instead of one it read from CANVAS_SHAPES. Without this, the action
+	// passes Zod (the id is a syntactically valid string), reaches the
+	// client, and silently no-ops because tldraw's ID_MAP has nothing to
+	// reparent / update / link. Returning ok:false here surfaces a
+	// human-readable error to the agent's next step so it can recover by
+	// calling find_shapes / read_canvas.
+	//
+	// Voice path is unaffected — the orchestrator bypasses dispatchAction.
+	const refError = validateActionRefs(action, room)
+	if (refError) {
+		console.warn(`[agent] action rejected (bad refs): ${refError}`)
+		return { ok: false, error: refError }
+	}
+
 	try {
 		// Tag with source='chat' so memory summaries attribute actions to
 		// the right path. The voice orchestrator emits with the default
@@ -485,6 +502,77 @@ function dispatchAction(
 		const message = err instanceof Error ? err.message : 'broadcast failed'
 		console.error('[agent] dispatch failed:', message)
 		return { ok: false, error: message }
+	}
+}
+
+/**
+ * Reject actions whose ids reference shapes that don't exist on the canvas.
+ * Returns a human-readable error string the agent will see in the next step
+ * (it then knows to call find_shapes / read_canvas and retry); returns null
+ * when the action's refs are clean OR the action doesn't carry any refs to
+ * validate (creates, free-form arrows, etc.).
+ *
+ * Empirically the model emits invented ids when the user describes a card
+ * by content ("group the commitment cards", "move the blocker"). The result
+ * passes Zod (ids are strings) but no-ops at apply time because tldraw's
+ * client-side ID_MAP has no entry. Silent failure is the worst UX — surfacing
+ * a clear error here turns a bug into one extra step.
+ */
+function validateActionRefs(action: Action, room: Room): string | null {
+	const exists = (id: string) => room.canvasShapes.has(id)
+	switch (action.type) {
+		case 'update_card':
+		case 'lock_decision':
+		case 'move_shape':
+		case 'resize_shape':
+		case 'set_shape_style':
+			if (!exists(action.id)) {
+				return `${action.type}: id "${action.id}" not found on canvas — call find_shapes or read_canvas to get the real ids before retrying`
+			}
+			return null
+		case 'link_nodes': {
+			const missing: string[] = []
+			if (!exists(action.from)) missing.push(action.from)
+			if (!exists(action.to)) missing.push(action.to)
+			if (missing.length > 0) {
+				return `link_nodes references unknown ids: ${missing.join(', ')} — call find_shapes or read_canvas first`
+			}
+			return null
+		}
+		case 'group_into_frame': {
+			const valid = action.nodeIds.filter(exists)
+			if (valid.length < 2) {
+				return `group_into_frame: ${action.nodeIds.length} nodeIds supplied but only ${valid.length} match existing canvas shapes — call find_shapes (e.g. find_shapes({type:"create_commitment_card"})) to get the real ids, then retry with at least 2 real ids`
+			}
+			return null
+		}
+		case 'delete_shapes':
+		case 'reorder_shapes':
+		case 'align_shapes':
+		case 'distribute_shapes': {
+			const valid = action.ids.filter(exists)
+			if (valid.length === 0) {
+				return `${action.type}: none of [${action.ids.join(', ')}] exist on canvas — call find_shapes or read_canvas first`
+			}
+			return null
+		}
+		case 'zoom_to_shapes': {
+			// `ids` is optional; missing/empty means "fit everything" and is
+			// always valid. Only validate when the model explicitly listed
+			// specific ids.
+			if (action.ids && action.ids.length > 0) {
+				const valid = action.ids.filter(exists)
+				if (valid.length === 0) {
+					return `zoom_to_shapes: none of [${action.ids.join(', ')}] exist — pass an empty/omitted ids to zoom-to-fit everything, or call find_shapes first`
+				}
+			}
+			return null
+		}
+		default:
+			// Creates (create_proposal_card, create_note, create_geo, etc.),
+			// create_arrow (unbound), and any L3 widget creates carry no
+			// id-ref dependencies — nothing to validate here.
+			return null
 	}
 }
 

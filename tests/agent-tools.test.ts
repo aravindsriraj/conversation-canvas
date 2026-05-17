@@ -374,5 +374,101 @@ describe('agent buildTools()', () => {
 			expect(out.ok).toBe(true)
 			if (out.ok) expect(out.type).toBe('create_blocker_card')
 		})
+
+		// --- Reference validation ---
+		// These reproduce the empty-frame / silent-noop bug fixed after the
+		// "group all commitment cards" demo failure. Manipulation/grouping
+		// actions emitted with invented ids must be rejected with a clear
+		// error so the agent retries via find_shapes / read_canvas.
+
+		it('rejects group_into_frame when nodeIds do not match canvas shapes', async () => {
+			const room = makeRoomStub({
+				canvasShapes: new Map([
+					['c1', { type: 'create_commitment_card', summary: 'real' }],
+				]),
+			})
+			const tools = buildTools(room)
+			const out = await callTool<EmitActionOut>(tools.emit_action, {
+				action: {
+					type: 'group_into_frame',
+					nodeIds: ['fake-1', 'fake-2'],
+					label: 'Q3 Owners',
+				},
+			})
+			expect(out.ok).toBe(false)
+			if (!out.ok) {
+				expect(out.error).toMatch(/group_into_frame/)
+				expect(out.error).toMatch(/find_shapes|read_canvas/)
+			}
+			expect(room.recordAction).not.toHaveBeenCalled()
+		})
+
+		it('accepts group_into_frame when nodeIds are all real', async () => {
+			const room = makeRoomStub({
+				canvasShapes: new Map([
+					['c1', { type: 'create_commitment_card', summary: 'a' }],
+					['c2', { type: 'create_commitment_card', summary: 'b' }],
+				]),
+			})
+			const tools = buildTools(room)
+			const out = await callTool<EmitActionOut>(tools.emit_action, {
+				action: {
+					type: 'group_into_frame',
+					nodeIds: ['c1', 'c2'],
+					label: 'Q3 Owners',
+				},
+			})
+			expect(out.ok).toBe(true)
+			expect(room.recordAction).toHaveBeenCalledOnce()
+		})
+
+		it('rejects move_shape with an invented id', async () => {
+			const room = makeRoomStub({
+				canvasShapes: new Map([
+					['b1', { type: 'create_blocker_card', summary: 'real blocker' }],
+				]),
+			})
+			const tools = buildTools(room)
+			const out = await callTool<EmitActionOut>(tools.emit_action, {
+				action: { type: 'move_shape', id: 'phantom', dx: 100, dy: 0 },
+			})
+			expect(out.ok).toBe(false)
+			if (!out.ok) {
+				expect(out.error).toMatch(/move_shape/)
+				expect(out.error).toMatch(/phantom/)
+			}
+		})
+
+		it('rejects link_nodes when from or to is missing', async () => {
+			const room = makeRoomStub({
+				canvasShapes: new Map([
+					['p1', { type: 'create_proposal_card', summary: 'real' }],
+				]),
+			})
+			const tools = buildTools(room)
+			const out = await callTool<EmitActionOut>(tools.emit_action, {
+				action: { type: 'link_nodes', from: 'p1', to: 'ghost', kind: 'supports' },
+			})
+			expect(out.ok).toBe(false)
+			if (!out.ok) expect(out.error).toMatch(/ghost/)
+		})
+
+		it('rejects update_card on a non-existent shape', async () => {
+			const room = makeRoomStub()
+			const tools = buildTools(room)
+			const out = await callTool<EmitActionOut>(tools.emit_action, {
+				action: { type: 'update_card', id: 'nope', patch: { content: 'x' } },
+			})
+			expect(out.ok).toBe(false)
+		})
+
+		it('allows zoom_to_shapes with no ids (zoom-to-fit)', async () => {
+			const room = makeRoomStub()
+			const tools = buildTools(room)
+			const out = await callTool<EmitActionOut>(tools.emit_action, {
+				action: { type: 'zoom_to_shapes' },
+			})
+			expect(out.ok).toBe(true)
+		})
 	})
 })
