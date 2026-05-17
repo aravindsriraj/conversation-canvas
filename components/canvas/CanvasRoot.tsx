@@ -422,6 +422,7 @@ export function CanvasRoot({ roomId, canvasName, enrollment }: CanvasRootProps) 
 				roomId={roomId}
 				isOpen={agentOpen}
 				onClose={() => setAgentOpen(false)}
+				editorRef={editorRef}
 			/>
 			{/*
 				Top-left navigation pill: back link to dashboard + canvas name

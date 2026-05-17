@@ -39,7 +39,11 @@ export async function POST(req: Request) {
 		})
 	}
 
-	let body: { canvasId?: unknown; message?: unknown }
+	let body: {
+		canvasId?: unknown
+		message?: unknown
+		canvasImage?: unknown
+	}
 	try {
 		body = await req.json()
 	} catch {
@@ -65,6 +69,16 @@ export async function POST(req: Request) {
 			{ status: 400, headers: { 'Content-Type': 'application/json' } },
 		)
 	}
+	// Optional multimodal grounding: client may attach a PNG screenshot of
+	// the live canvas as a data URL. We only accept data-URL form (so we
+	// don't accidentally fetch a remote URL on the server), and we cap
+	// total payload at ~3 MB to keep the model call cheap and predictable.
+	const canvasImage =
+		typeof body.canvasImage === 'string' &&
+		body.canvasImage.startsWith('data:image/') &&
+		body.canvasImage.length <= 4_000_000
+			? body.canvasImage
+			: undefined
 
 	const canvas = await getCanvasIfOwned(canvasId, userId)
 	if (!canvas) {
@@ -105,7 +119,9 @@ export async function POST(req: Request) {
 			})
 
 			try {
-				for await (const evt of runAgentTurn(room, message)) {
+				for await (const evt of runAgentTurn(room, message, {
+					canvasImage,
+				})) {
 					if (evt.kind === 'text') {
 						assistantText += evt.delta
 						send({ kind: 'text', delta: evt.delta })

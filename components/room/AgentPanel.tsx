@@ -2,12 +2,22 @@
 
 import { useAuth } from '@clerk/nextjs'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import type { Editor } from 'tldraw'
 import type { Action } from '@/lib/actions/schema'
 
 interface Props {
 	roomId: string
 	isOpen: boolean
 	onClose: () => void
+	/**
+	 * Optional ref to the live tldraw editor. When present, the panel
+	 * grabs a small PNG screenshot of the canvas's current page right
+	 * before posting each chat turn and attaches it to the request so
+	 * the multimodal LLM can ground its reasoning in the visual layout
+	 * (not just the structured shape blob). Falls back to text-only
+	 * when no editor is mounted yet — degrades gracefully.
+	 */
+	editorRef?: React.RefObject<Editor | null>
 }
 
 interface ChatTurn {
@@ -37,7 +47,7 @@ interface ChatTurn {
  * action through the room's WS, so the canvas updates via the existing
  * applyAction path. The chat panel is just a transcript of "what got done".
  */
-export function AgentPanel({ roomId, isOpen, onClose }: Props) {
+export function AgentPanel({ roomId, isOpen, onClose, editorRef }: Props) {
 	const [turns, setTurns] = useState<ChatTurn[]>([])
 	const [input, setInput] = useState('')
 	const [isStreaming, setIsStreaming] = useState(false)
@@ -163,13 +173,43 @@ export function AgentPanel({ roomId, isOpen, onClose }: Props) {
 			if (!token) {
 				throw new Error('not signed in')
 			}
+
+			// Multimodal grounding: snapshot the current canvas as a PNG so
+			// the chat agent can SEE the layout, not just the structured
+			// shape blob. We downscale to 0.4× and skip on empty canvases —
+			// no point shipping a 100×100 transparent square. Failure is
+			// silent: the structured context blob still flows through, the
+			// model just loses visual grounding for this turn.
+			let imageDataUrl: string | null = null
+			try {
+				const editor = editorRef?.current
+				const pageShapes = editor?.getCurrentPageShapes() ?? []
+				if (editor && pageShapes.length > 0) {
+					const result = await editor.toImage(pageShapes, {
+						format: 'png',
+						scale: 0.4,
+						background: true,
+					})
+					imageDataUrl = await blobToDataUrl(result.blob)
+				}
+			} catch (err) {
+				console.warn(
+					'[agent-panel] canvas screenshot failed; falling back to text-only context',
+					err,
+				)
+			}
+
 			const res = await fetch('/api/agent', {
 				method: 'POST',
 				headers: {
 					'Content-Type': 'application/json',
 					Authorization: `Bearer ${token}`,
 				},
-				body: JSON.stringify({ canvasId: roomId, message }),
+				body: JSON.stringify({
+					canvasId: roomId,
+					message,
+					...(imageDataUrl ? { canvasImage: imageDataUrl } : {}),
+				}),
 				signal: ac.signal,
 			})
 			if (!res.ok || !res.body) {
@@ -386,6 +426,26 @@ export function AgentPanel({ roomId, isOpen, onClose }: Props) {
 			</div>
 		</div>
 	)
+}
+
+/**
+ * Convert a Blob (e.g. the PNG that `editor.toImage` returns) to a
+ * `data:image/png;base64,...` URL we can JSON-serialize and ship to the
+ * agent route. We use FileReader.readAsDataURL because it produces the
+ * data-URL form directly — perfect for the AI SDK's `image` content part
+ * (which accepts either a URL or base64 string).
+ */
+function blobToDataUrl(blob: Blob): Promise<string> {
+	return new Promise((resolve, reject) => {
+		const reader = new FileReader()
+		reader.onload = () => {
+			const result = reader.result
+			if (typeof result === 'string') resolve(result)
+			else reject(new Error('FileReader returned non-string for image blob'))
+		}
+		reader.onerror = () => reject(reader.error ?? new Error('FileReader failed'))
+		reader.readAsDataURL(blob)
+	})
 }
 
 function TurnBubble({ turn }: { turn: ChatTurn }) {
