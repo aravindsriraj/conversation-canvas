@@ -1,6 +1,6 @@
-import { describe, expect, it, vi } from 'vitest'
-import { isModeBCommand } from '@/lib/orchestrator/loop'
+import { describe, expect, it } from 'vitest'
 import { dedupSingleAction } from '@/lib/orchestrator/voice-agent'
+import { buildClassifierUserPrompt } from '@/lib/orchestrator/classifier'
 import type { Action } from '@/lib/actions/schema'
 import type { Room } from '@server/room'
 import type { TranscriptSegment } from '@/lib/speechmatics/client'
@@ -15,98 +15,46 @@ function roomFromHistory(actionHistory: Action[]): Room {
 	return { actionHistory } as unknown as Room
 }
 
-// --- Classifier -------------------------------------------------------------
+// --- Classifier prompt shape ------------------------------------------------
+// We don't unit-test the LLM classifier call itself (that's an integration
+// concern — verified via dev-server smoke testing). We do lock down the
+// shape of the prompt that gets sent to the model, so a future refactor
+// can't accidentally change what the classifier sees.
 
-describe('isModeBCommand — voice MODE-B classifier', () => {
-	it('matches "draw a flowchart with arrows"', () => {
-		expect(
-			isModeBCommand([seg('Can you draw a flowchart with three boxes and arrows?')]),
-		).toBe(true)
-	})
-
-	it('matches "rank these by impact and effort"', () => {
-		expect(
-			isModeBCommand([seg('Rank these proposals by impact and effort.')]),
-		).toBe(true)
-	})
-
-	it('matches "delete the blocker"', () => {
-		expect(isModeBCommand([seg('Delete the blocker card about hiring.')])).toBe(
-			true,
+describe('buildClassifierUserPrompt', () => {
+	it('quotes the most recent transcript text', () => {
+		const text = buildClassifierUserPrompt([
+			seg('Draw a flowchart with three boxes and arrows.'),
+		])
+		expect(text).toMatch(/Most-recent voice transcript:/)
+		expect(text).toMatch(
+			/"Draw a flowchart with three boxes and arrows\."/,
 		)
 	})
 
-	it('matches "align all the proposals to the left"', () => {
-		expect(
-			isModeBCommand([seg('Align all the proposal cards to the left.')]),
-		).toBe(true)
+	it('uses only the last 3 segments (older context is in action history)', () => {
+		const text = buildClassifierUserPrompt([
+			seg('one', 1000),
+			seg('two', 2000),
+			seg('three', 3000),
+			seg('four', 4000),
+			seg('five', 5000),
+		])
+		// We slice the tail-3; "one" and "two" should NOT appear in the prompt.
+		expect(text).not.toContain('one')
+		expect(text).not.toContain('two')
+		expect(text).toContain('three four five')
 	})
 
-	it('matches "add a yellow sticky"', () => {
-		expect(isModeBCommand([seg('Add a yellow sticky note for next week.')])).toBe(
-			true,
-		)
-	})
-
-	it('matches "let\'s add some colors" (no canvas-noun, just color words)', () => {
-		expect(
-			isModeBCommand([seg("Let's add some colors as well.")]),
-		).toBe(true)
-	})
-
-	it('matches "make the boxes orange" (color word as target)', () => {
-		expect(isModeBCommand([seg('Make the boxes orange.')])).toBe(true)
-	})
-
-	it('matches "color the proposals blue"', () => {
-		expect(isModeBCommand([seg('Color the proposals blue.')])).toBe(true)
-	})
-
-	it('matches compound hint "with arrows" even without a verb noun pair', () => {
-		expect(
-			isModeBCommand([seg('Three steps connecting them with arrows.')]),
-		).toBe(true)
-	})
-
-	it('does NOT match passive conversation', () => {
-		expect(
-			isModeBCommand([
-				seg('I think we should focus on enterprise customers in Q3.'),
-				seg("That's a strong argument."),
-			]),
-		).toBe(false)
-	})
-
-	it('does NOT match a proposal statement', () => {
-		expect(
-			isModeBCommand([seg('Let me propose we hire two engineers next quarter.')]),
-		).toBe(false)
-	})
-
-	it('does NOT match a question-card style utterance', () => {
-		expect(
-			isModeBCommand([seg('How are we tracking against the Q3 commit?')]),
-		).toBe(false)
-	})
-
-	it('returns false on an empty transcript window', () => {
-		expect(isModeBCommand([])).toBe(false)
-	})
-
-	it('classifies based on the MOST-RECENT utterance, not stale ones', () => {
-		// First utterance was a command — but it was 60s ago. The classifier
-		// should look at the recent tail, not the full window.
-		const old = seg('Draw me a flowchart with arrows.', 1000)
-		const recentChat = [
-			seg("Actually let's think about this differently.", 60_000),
-			seg("Pricing is the real issue here.", 62_000),
-			seg("Anyway the engineering budget is fine.", 64_000),
-		]
-		expect(isModeBCommand([old, ...recentChat])).toBe(false)
+	it('handles an empty transcript', () => {
+		const text = buildClassifierUserPrompt([])
+		expect(text).toMatch(/Most-recent voice transcript:\n""$/)
 	})
 })
 
 // --- dedupSingleAction ------------------------------------------------------
+// The per-action dedup gate inside the voice ReAct emit tool. This logic is
+// unchanged from before the classifier refactor; tests carry over directly.
 
 describe('dedupSingleAction — voice MODE-B per-action dedup', () => {
 	it('passes a fresh link_nodes through', () => {

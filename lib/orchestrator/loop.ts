@@ -4,6 +4,7 @@ import type { Room } from '@server/room'
 import { ActionStreamSchema, type Action } from '@/lib/actions/schema'
 import { SYSTEM_PROMPT, buildUserPrompt } from '@/lib/orchestrator/prompt'
 import { makeVoiceAgent } from '@/lib/orchestrator/voice-agent'
+import { classifyTranscript } from '@/lib/orchestrator/classifier'
 import type { TranscriptSegment } from '@/lib/speechmatics/client'
 
 // gemini-3-flash-preview — the full Flash tier. We moved off the lite variant
@@ -43,14 +44,18 @@ export async function runOrchestratorTick(room: Room): Promise<Action[]> {
 	// is what we hand to Gemini; the raw buffer stays for the per-segment forward.
 	const transcript = coalesceUtterances(rawTranscript, 2500)
 
-	// MODE-B routing. A compound canvas command (flowchart, rank, group,
-	// align, etc.) goes through the ReAct voice agent — it can read the
-	// canvas mid-turn and self-correct. Everything else (passive capture)
-	// stays on the single-shot generateObject path below, where the 3-second
-	// debounce can't afford multi-step latency. The MODE-B agent records +
-	// broadcasts inline via its emit tool and returns []; the caller's
-	// record-and-broadcast loop is a no-op for that branch.
-	if (isModeBCommand(transcript)) {
+	// MODE-B routing. We ask a tiny `gemini-3.1-flash-lite` classifier
+	// whether this transcript window is a direct canvas command. If so,
+	// route through the multi-step ReAct voice agent (which can read the
+	// canvas mid-turn and self-correct). Otherwise stay on the single-shot
+	// generateObject path below — the 3-second tick can't afford multi-step
+	// latency on every passive utterance.
+	//
+	// The classifier replaces an earlier regex-based heuristic that kept
+	// missing turns of phrase. See lib/orchestrator/classifier.ts.
+	// Latency cost: ~150-300ms per tick. Failure mode: defaults to MODE A.
+	const mode = await classifyTranscript(transcript)
+	if (mode === 'B') {
 		await runVoiceModeBTick(room, transcript)
 		return []
 	}
@@ -480,51 +485,13 @@ function coerceSplit(s: unknown): unknown {
 }
 
 // --- MODE-B routing ---------------------------------------------------------
-// A cheap regex-based classifier that decides whether the coalesced
-// transcript window contains a compound canvas command — the kind of
-// utterance that benefits from multi-step ReAct (read canvas → emit →
-// self-correct). Anything that looks like passive conversation stays on
-// the single-shot generateObject path for latency.
-//
-// The classifier is intentionally permissive on the false-positive side: a
-// stray "draw a line under that" sent to ReAct just costs an extra few
-// seconds of latency. The false-negative side is what we care about — a
-// real flowchart command misclassified as MODE-A drops the arrows again.
-
-const VERB_PATTERN =
-	/\b(draw|create|add|make|build|show|put|place|insert|connect|link|delete|remove|move|align|rank|order|sort|recolor|color|paint|resize|group|distribute|zoom|focus|fit|lock|highlight)\b/i
-
-const TARGET_PATTERN =
-	/\b(flowchart|flow chart|diagram|chart|matrix|gantt|arrow|arrows|box|boxes|rectangle|square|circle|ellipse|triangle|diamond|sticky|note|notes|card|cards|canvas|whiteboard|frame|group|priority|budget|allocator|split|splits|step|steps|node|nodes|column|columns|proposal|proposals|decision|decisions|blocker|blockers|commitment|commitments|question|questions|item|items|color|colors|colored|colour|colours|red|blue|green|yellow|orange|violet|pink|grey|gray|black|white|bold|fill|font|style|styling|larger|smaller|wider|taller)\b/i
-
-const COMPOUND_HINT_PATTERN =
-	/\b(and arrow|with arrow|with arrows|then arrow|then connect|then link|with steps|connecting them|connected by)\b/i
-
-/**
- * Return true if the coalesced transcript window contains a compound canvas
- * command. Exported for unit testing — see tests/voice-mode-b.test.ts.
- *
- * Heuristic: imperative verb + canvas target noun in the SAME utterance,
- * OR an explicit "with arrows / connect them" compound hint.
- *
- * False-positive cost: an extra ReAct tick (~10s) instead of a single-shot
- * tick (~5s). False-negative cost: a real compound command falls back to
- * single-shot generateObject and loses the multi-step reasoning we just
- * built — the exact bug we're trying to fix. Tune toward false-positives.
- */
-export function isModeBCommand(transcript: TranscriptSegment[]): boolean {
-	if (transcript.length === 0) return false
-	// We only classify based on the MOST-RECENT utterance(s) — a flowchart
-	// command issued 60 seconds ago is already in the action history; we'd
-	// re-fire it on every subsequent tick if we matched the full window.
-	const tail = transcript.slice(-3)
-	for (const seg of tail) {
-		const text = seg.text || ''
-		if (COMPOUND_HINT_PATTERN.test(text)) return true
-		if (VERB_PATTERN.test(text) && TARGET_PATTERN.test(text)) return true
-	}
-	return false
-}
+// Routing decision lives in `lib/orchestrator/classifier.ts` — a small
+// LLM-based classifier (gemini-3.1-flash-lite) decides per-tick whether
+// the transcript window is a direct canvas command. The previous
+// regex-based heuristic kept missing turns of phrase ("let's add some
+// colors" — verb matched, but "colors" wasn't in any target list); pattern
+// matching on natural speech is whack-a-mole. The LLM classifies on
+// intent, so vocabulary drift is no longer a maintenance burden.
 
 /**
  * MODE-B branch: spin up the voice ReAct agent for one tick. The agent's
