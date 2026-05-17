@@ -1,16 +1,29 @@
 import { HelpCircle } from 'lucide-react'
-import { HTMLContainer, Rectangle2d, ShapeUtil, T, type TLBaseShape } from 'tldraw'
+import {
+	HTMLContainer,
+	Rectangle2d,
+	ShapeUtil,
+	T,
+	type TLIndicatorPath,
+	type TLShape,
+} from 'tldraw'
 
-export type QuestionCardShape = TLBaseShape<
-	'question-card',
-	{
-		w: number
-		h: number
-		content: string
-		askerName: string
-		askerColor: string
+// v5 module augmentation pattern — registers our custom shape's props on
+// the global TLShape map so `editor.createShape({ type: 'question-card', ... })`
+// type-checks without us re-declaring TLBaseShape everywhere.
+declare module 'tldraw' {
+	export interface TLGlobalShapePropsMap {
+		'question-card': {
+			w: number
+			h: number
+			content: string
+			askerName: string
+			askerColor: string
+		}
 	}
->
+}
+
+export type QuestionCardShape = TLShape<'question-card'>
 
 export class QuestionCardUtil extends ShapeUtil<QuestionCardShape> {
 	static override type = 'question-card' as const
@@ -92,7 +105,13 @@ export class QuestionCardUtil extends ShapeUtil<QuestionCardShape> {
 		)
 	}
 
-	override indicator(shape: QuestionCardShape) {
-		return <rect width={shape.props.w} height={shape.props.h} rx={4} />
+	// v5 canvas-overlay indicator. Returns a Path2D that tldraw composites
+	// onto the overlay layer (much faster than rendering JSX per shape).
+	// We opt out of legacy SVG indicators since all our shape selection
+	// outlines are simple rounded rects.
+	override getIndicatorPath(shape: QuestionCardShape): TLIndicatorPath {
+		const path = new Path2D()
+		path.roundRect(0, 0, shape.props.w, shape.props.h, 4)
+		return { path }
 	}
 }

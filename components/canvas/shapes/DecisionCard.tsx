@@ -1,18 +1,28 @@
-import { HTMLContainer, Rectangle2d, ShapeUtil, T, type TLBaseShape } from 'tldraw'
+import {
+	HTMLContainer,
+	Rectangle2d,
+	ShapeUtil,
+	T,
+	type TLIndicatorPath,
+	type TLShape,
+} from 'tldraw'
 import { Stamp } from './_stamp'
 
-export type DecisionCardShape = TLBaseShape<
-	'decision-card',
-	{
-		w: number
-		h: number
-		content: string
-		ownerName: string
-		ownerColor: string
-		deadline: string
-		locked: boolean
+declare module 'tldraw' {
+	export interface TLGlobalShapePropsMap {
+		'decision-card': {
+			w: number
+			h: number
+			content: string
+			ownerName: string
+			ownerColor: string
+			deadline: string
+			locked: boolean
+		}
 	}
->
+}
+
+export type DecisionCardShape = TLShape<'decision-card'>
 
 export class DecisionCardUtil extends ShapeUtil<DecisionCardShape> {
 	static override type = 'decision-card' as const
@@ -110,7 +120,9 @@ export class DecisionCardUtil extends ShapeUtil<DecisionCardShape> {
 		)
 	}
 
-	override indicator(shape: DecisionCardShape) {
-		return <rect width={shape.props.w} height={shape.props.h} rx={4} />
+	override getIndicatorPath(shape: DecisionCardShape): TLIndicatorPath {
+		const path = new Path2D()
+		path.roundRect(0, 0, shape.props.w, shape.props.h, 4)
+		return { path }
 	}
 }

@@ -1,15 +1,25 @@
-import { HTMLContainer, Rectangle2d, ShapeUtil, T, type TLBaseShape } from 'tldraw'
+import {
+	HTMLContainer,
+	Rectangle2d,
+	ShapeUtil,
+	T,
+	type TLIndicatorPath,
+	type TLShape,
+} from 'tldraw'
 
-export type BudgetAllocatorShape = TLBaseShape<
-	'budget-allocator',
-	{
-		w: number
-		h: number
-		total: number
-		currency: string
-		splits: { label: string; amountPct: number; ownerSpeakerId?: string }[]
+declare module 'tldraw' {
+	export interface TLGlobalShapePropsMap {
+		'budget-allocator': {
+			w: number
+			h: number
+			total: number
+			currency: string
+			splits: { label: string; amountPct: number; ownerSpeakerId?: string }[]
+		}
 	}
->
+}
+
+export type BudgetAllocatorShape = TLShape<'budget-allocator'>
 
 export class BudgetAllocatorUtil extends ShapeUtil<BudgetAllocatorShape> {
 	static override type = 'budget-allocator' as const
@@ -139,7 +149,9 @@ export class BudgetAllocatorUtil extends ShapeUtil<BudgetAllocatorShape> {
 		)
 	}
 
-	override indicator(shape: BudgetAllocatorShape) {
-		return <rect width={shape.props.w} height={shape.props.h} rx={4} />
+	override getIndicatorPath(shape: BudgetAllocatorShape): TLIndicatorPath {
+		const path = new Path2D()
+		path.roundRect(0, 0, shape.props.w, shape.props.h, 4)
+		return { path }
 	}
 }

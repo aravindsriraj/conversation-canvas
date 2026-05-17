@@ -1,10 +1,20 @@
 import { AlertTriangle } from 'lucide-react'
-import { HTMLContainer, Rectangle2d, ShapeUtil, T, type TLBaseShape } from 'tldraw'
+import {
+	HTMLContainer,
+	Rectangle2d,
+	ShapeUtil,
+	T,
+	type TLIndicatorPath,
+	type TLShape,
+} from 'tldraw'
 
-export type BlockerCardShape = TLBaseShape<
-	'blocker-card',
-	{ w: number; h: number; content: string }
->
+declare module 'tldraw' {
+	export interface TLGlobalShapePropsMap {
+		'blocker-card': { w: number; h: number; content: string }
+	}
+}
+
+export type BlockerCardShape = TLShape<'blocker-card'>
 
 export class BlockerCardUtil extends ShapeUtil<BlockerCardShape> {
 	static override type = 'blocker-card' as const
@@ -65,7 +75,9 @@ export class BlockerCardUtil extends ShapeUtil<BlockerCardShape> {
 		)
 	}
 
-	override indicator(shape: BlockerCardShape) {
-		return <rect width={shape.props.w} height={shape.props.h} rx={4} />
+	override getIndicatorPath(shape: BlockerCardShape): TLIndicatorPath {
+		const path = new Path2D()
+		path.roundRect(0, 0, shape.props.w, shape.props.h, 4)
+		return { path }
 	}
 }

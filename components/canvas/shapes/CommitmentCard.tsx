@@ -1,16 +1,26 @@
-import { HTMLContainer, Rectangle2d, ShapeUtil, T, type TLBaseShape } from 'tldraw'
+import {
+	HTMLContainer,
+	Rectangle2d,
+	ShapeUtil,
+	T,
+	type TLIndicatorPath,
+	type TLShape,
+} from 'tldraw'
 
-export type CommitmentCardShape = TLBaseShape<
-	'commitment-card',
-	{
-		w: number
-		h: number
-		action: string
-		ownerName: string
-		ownerColor: string
-		deadline: string
+declare module 'tldraw' {
+	export interface TLGlobalShapePropsMap {
+		'commitment-card': {
+			w: number
+			h: number
+			action: string
+			ownerName: string
+			ownerColor: string
+			deadline: string
+		}
 	}
->
+}
+
+export type CommitmentCardShape = TLShape<'commitment-card'>
 
 export class CommitmentCardUtil extends ShapeUtil<CommitmentCardShape> {
 	static override type = 'commitment-card' as const
@@ -96,7 +106,9 @@ export class CommitmentCardUtil extends ShapeUtil<CommitmentCardShape> {
 		)
 	}
 
-	override indicator(shape: CommitmentCardShape) {
-		return <rect width={shape.props.w} height={shape.props.h} rx={4} />
+	override getIndicatorPath(shape: CommitmentCardShape): TLIndicatorPath {
+		const path = new Path2D()
+		path.roundRect(0, 0, shape.props.w, shape.props.h, 4)
+		return { path }
 	}
 }

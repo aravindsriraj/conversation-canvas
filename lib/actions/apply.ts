@@ -357,7 +357,9 @@ export function applyAction(editor: Editor, action: Action, speakers: Registry) 
 					kind: 'elbow',
 					start: { x: 0, y: 0 },
 					end: { x: 100, y: 0 },
-					text: action.label ?? action.kind,
+					// v5: arrow text is rich-text-encoded. `toRichText(string)`
+					// is the documented helper for one-line plain text.
+					richText: toRichText(action.label ?? action.kind),
 				},
 			})
 			editor.createBinding({
@@ -661,7 +663,8 @@ export function applyAction(editor: Editor, action: Action, speakers: Registry) 
 					kind: action.kind ?? 'arc',
 					start: { x: action.start.x, y: action.start.y },
 					end: { x: action.end.x, y: action.end.y },
-					text: action.text ?? '',
+					// v5: arrow text is rich-text-encoded; see toRichText helper.
+					richText: toRichText(action.text ?? ''),
 				},
 			})
 			break

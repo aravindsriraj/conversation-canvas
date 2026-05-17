@@ -1,13 +1,23 @@
-import { HTMLContainer, Rectangle2d, ShapeUtil, T, type TLBaseShape } from 'tldraw'
+import {
+	HTMLContainer,
+	Rectangle2d,
+	ShapeUtil,
+	T,
+	type TLIndicatorPath,
+	type TLShape,
+} from 'tldraw'
 
-export type PriorityMatrixShape = TLBaseShape<
-	'priority-matrix',
-	{
-		w: number
-		h: number
-		items: { id: string; label: string; impact: number; effort: number }[]
+declare module 'tldraw' {
+	export interface TLGlobalShapePropsMap {
+		'priority-matrix': {
+			w: number
+			h: number
+			items: { id: string; label: string; impact: number; effort: number }[]
+		}
 	}
->
+}
+
+export type PriorityMatrixShape = TLShape<'priority-matrix'>
 
 export class PriorityMatrixUtil extends ShapeUtil<PriorityMatrixShape> {
 	static override type = 'priority-matrix' as const
@@ -138,7 +148,9 @@ export class PriorityMatrixUtil extends ShapeUtil<PriorityMatrixShape> {
 		)
 	}
 
-	override indicator(shape: PriorityMatrixShape) {
-		return <rect width={shape.props.w} height={shape.props.h} rx={4} />
+	override getIndicatorPath(shape: PriorityMatrixShape): TLIndicatorPath {
+		const path = new Path2D()
+		path.roundRect(0, 0, shape.props.w, shape.props.h, 4)
+		return { path }
 	}
 }
