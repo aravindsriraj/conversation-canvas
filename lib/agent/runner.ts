@@ -54,18 +54,40 @@ export type AgentEvent =
 export async function* runAgentTurn(
 	room: Room,
 	userMessage: string,
+	options?: { canvasImage?: string },
 ): AsyncGenerator<AgentEvent> {
 	const context = buildAgentContext(room)
 	const userPrompt = `${context}\n\nUSER MESSAGE:\n${userMessage}`
 
 	const startedAt = Date.now()
+	const hasImage = Boolean(options?.canvasImage)
 	console.log(
-		`[agent] turn start: ctx=${context.length}B user="${userMessage.slice(0, 80)}"`,
+		`[agent] turn start: ctx=${context.length}B user="${userMessage.slice(0, 80)}" img=${hasImage ? 'yes' : 'no'}`,
 	)
 
 	try {
 		const canvasAgent = makeCanvasAgent(room)
-		const result = await canvasAgent.stream({ prompt: userPrompt })
+		// When the client ships a PNG snapshot of the canvas, switch from
+		// the plain `prompt: string` form to the multimodal `messages` form.
+		// Gemini 3 Flash is multimodal and consumes `image` content parts
+		// natively via the Vercel AI SDK. Keeps the same `streamText`/
+		// ToolLoopAgent pipeline — just richer first message.
+		const result = options?.canvasImage
+			? await canvasAgent.stream({
+					messages: [
+						{
+							role: 'user',
+							content: [
+								{ type: 'text', text: userPrompt },
+								{
+									type: 'image',
+									image: options.canvasImage,
+								},
+							],
+						},
+					],
+				})
+			: await canvasAgent.stream({ prompt: userPrompt })
 
 		let toolResults = 0
 
@@ -190,7 +212,7 @@ export function buildTools(room: Room) {
 			action: z
 				.unknown()
 				.describe(
-					'A single Action object — one of the documented action types (create_proposal_card / create_decision_card / create_commitment_card / create_blocker_card / create_question_card / create_note / create_geo / create_text / create_priority_matrix / create_budget_allocator / link_nodes / lock_decision / update_card / group_into_frame / delete_shapes / move_shape / resize_shape / set_shape_style / align_shapes / distribute_shapes / reorder_shapes / zoom_to_shapes / create_arrow). Must include `id` (or `from`/`to` for link_nodes) and all required fields for that type. NEVER invent a new type — for free-form jots / boxes / sticky notes use create_note.',
+					'A single Action object — one of the documented action types (create_proposal_card / create_decision_card / create_commitment_card / create_blocker_card / create_question_card / create_note / create_geo / create_text / create_priority_matrix / create_budget_allocator / link_nodes / lock_decision / update_card / group_into_frame / delete_shapes / move_shape / resize_shape / set_shape_style / align_shapes / distribute_shapes / reorder_shapes / zoom_to_shapes / create_arrow / create_mermaid_diagram). Must include `id` (or `from`/`to` for link_nodes) and all required fields for that type. NEVER invent a new type — for free-form jots / boxes / sticky notes use create_note.',
 				),
 		}),
 		execute: async ({ action }) => {

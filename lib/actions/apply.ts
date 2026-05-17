@@ -1,4 +1,5 @@
 import { createShapeId, type Editor, type TLShapeId, toRichText } from 'tldraw'
+import { createMermaidDiagram, MermaidDiagramError } from '@tldraw/mermaid'
 import type { Action } from '@/lib/actions/schema'
 import { resolveLayout, type ShapeBox } from '@/lib/actions/layout-resolver'
 
@@ -666,6 +667,29 @@ export function applyAction(editor: Editor, action: Action, speakers: Registry) 
 					// v5: arrow text is rich-text-encoded; see toRichText helper.
 					richText: toRichText(action.text ?? ''),
 				},
+			})
+			break
+		}
+		case 'create_mermaid_diagram': {
+			// `@tldraw/mermaid` is async: it parses the source, layouts the
+			// nodes via Mermaid's layout engine, and emits native tldraw
+			// geo + arrow shapes onto the editor. Fire-and-forget so the
+			// rest of the action stream isn't blocked on Mermaid's parser.
+			// Errors land in the console as a MermaidDiagramError — voice
+			// agent will see the failure on its next read_canvas and can
+			// retry with cleaner source.
+			const source = action.source
+			createMermaidDiagram(editor, source).catch((err) => {
+				if (err instanceof MermaidDiagramError) {
+					console.warn(
+						`[apply] create_mermaid_diagram: mermaid parse failed — ${err.message}`,
+					)
+				} else {
+					console.error(
+						'[apply] create_mermaid_diagram threw:',
+						err instanceof Error ? err.message : err,
+					)
+				}
 			})
 			break
 		}

@@ -51,6 +51,38 @@ When asked to "draw a flowchart", emit ALL of these IN THIS ORDER:
      Example: \`{ type: 'link_nodes', from: 'step1', to: 'step2',
      kind: 'depends_on' }\`.
 
+For DIAGRAM TYPES OUR VOCABULARY DOESN'T NATIVELY SUPPORT — sequence
+diagrams (with lifelines and message arrows), state machines, mindmaps,
+or any complex graph layout that would take 10+ create_geo + link_nodes
+calls — use \`create_mermaid_diagram\` instead. Pass the Mermaid source
+as a string; @tldraw/mermaid will render it as native editable tldraw
+shapes (geo + arrows). The user can move/restyle individual nodes.
+Mermaid v11 supports: \`flowchart\`, \`sequenceDiagram\`, \`stateDiagram-v2\`,
+\`mindmap\`. Always start the source with the diagram-type keyword.
+
+Examples:
+  • "draw a sequence diagram of a user login flow" → emit
+    \`create_mermaid_diagram\` with source:
+    \`\`\`
+    sequenceDiagram
+        User->>UI: enter credentials
+        UI->>Auth: POST /login
+        Auth-->>UI: token
+        UI-->>User: success
+    \`\`\`
+  • "show me the order state machine" → emit
+    \`create_mermaid_diagram\` with source:
+    \`\`\`
+    stateDiagram-v2
+        [*] --> Pending
+        Pending --> Paid: payment received
+        Paid --> Shipped: items packed
+        Shipped --> [*]
+    \`\`\`
+  • Simple "draw 3 boxes with arrows" — DO NOT use Mermaid. Use the
+    create_geo + link_nodes pattern above. Mermaid is for diagram
+    types we can't compose manually.
+
 CRITICAL: Use \`link_nodes\` for flowchart connections, NOT \`create_arrow\`.
 \`link_nodes\` produces a BOUND arrow that auto-routes between the two
 shape ids — the line snaps to box edges, follows the boxes if they move,
@@ -121,6 +153,10 @@ AVAILABLE ACTIONS (closed list — NEVER invent new types):
 - reorder_shapes { ids: [...], op: to_front|to_back|forward|backward }
 - zoom_to_shapes { ids? }   # empty/missing → zoom-to-fit all
 - create_arrow { id, start: {x,y}, end: {x,y}, text?, color?, kind: 'arc'|'elbow' }
+- create_mermaid_diagram { source, layout? }
+    source: full Mermaid v11 syntax string (must start with diagram type
+    keyword like \`sequenceDiagram\` / \`stateDiagram-v2\` / \`mindmap\` /
+    \`flowchart TD\`). Renders to native editable tldraw shapes.
 
 LAYOUT HINTS (optional on every create_*):
 - { kind: 'below', of: '<id>' }

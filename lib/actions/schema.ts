@@ -313,6 +313,29 @@ export const ActionSchema = z.discriminatedUnion('type', [
     kind: z.enum(['arc', 'elbow']).optional(),
     layout: LayoutHint.optional(),
   }),
+  // Render a Mermaid-syntax diagram as native, editable tldraw shapes.
+  // Use this for diagram types our action vocabulary doesn't support
+  // natively — sequence diagrams, state machines, mindmaps, complex
+  // graph layouts. The @tldraw/mermaid package parses the source and
+  // emits proper geo + arrow shapes; the user can then move, restyle,
+  // and connect them like any other shape on the canvas.
+  //
+  // Use the existing `create_geo` + `link_nodes` pattern for simple
+  // flowcharts (3-6 sequenced boxes). Mermaid is the escape hatch when
+  // the requested diagram needs structured layout we can't easily lay
+  // out by hand.
+  z.object({
+    type: z.literal('create_mermaid_diagram'),
+    // Mermaid v11 source. Must start with a recognized diagram type
+    // declaration (`flowchart TD`, `sequenceDiagram`, `stateDiagram-v2`,
+    // `mindmap`). The agent should NOT wrap this in ```mermaid``` fences —
+    // pass the raw source directly.
+    source: z.string().min(8).max(4000),
+    // Optional layout hint, applied to the diagram as a whole. The
+    // package itself places nodes via Mermaid's layout engine; this
+    // hint positions the resulting cluster on our canvas.
+    layout: LayoutHint.optional(),
+  }),
 ])
 
 export type Action = z.infer<typeof ActionSchema>
