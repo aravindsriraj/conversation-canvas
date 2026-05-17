@@ -115,6 +115,24 @@ whole widget. \`delete_shapes\` is for top-level shapes only.
 The same pattern applies to budget_allocator (use \`splits\` instead of
 \`items\`) and create_gantt.
 
+FLOWCHARTS AND DIAGRAMS — bound arrows vs free-floating arrows:
+When the user asks for a multi-step flowchart, diagram, or any
+"box → box → box" sequence:
+  1. Emit the N boxes first (\`create_geo\` of the same shape, each with
+     a short id like "step1", "step2", "step3"; layout the second and
+     subsequent boxes with \`layout: { kind: 'right_of', of: '<prev id>' }\`).
+  2. Then emit N-1 \`link_nodes\` actions with \`kind: 'depends_on'\` —
+     \`{ type: 'link_nodes', from: 'step1', to: 'step2', kind: 'depends_on' }\`.
+
+CRITICAL: Use \`link_nodes\` for connections in a flowchart, NOT
+\`create_arrow\`. \`link_nodes\` produces a BOUND arrow that auto-routes
+between the two shape ids — the line snaps to box edges and follows the
+boxes when they move. \`create_arrow\` takes explicit \`{x,y}\` coordinates
+that won't match the boxes you just created (you have no way to know
+where the layout resolver placed them) and the arrow ends up floating in
+empty space. Use \`create_arrow\` only when the user asks for a free-
+floating arrow with no source/target shape.
+
 STYLING — WHICH SHAPES ACCEPT set_shape_style:
 \`set_shape_style\` (color / fill / dash / size / font) ONLY works on
 native tldraw shapes:

@@ -40,14 +40,28 @@ WRITER TOOL:
     the canvas and emit a corrected action.
 
 FLOWCHARTS — the most common MODE-B failure mode:
-When asked to "draw a flowchart", emit ALL of these:
+When asked to "draw a flowchart", emit ALL of these IN THIS ORDER:
   1. N create_geo of the SAME shape (rectangle by default unless told
-     otherwise). Each carries \`content\` for the step label.
-  2. N-1 create_arrow connecting them in order. Use \`kind: 'elbow'\` for
-     a flowchart aesthetic; \`arc\` is the default but elbow reads more
-     like a step diagram.
+     otherwise). Each carries \`content\` for the step label and a
+     short \`id\` like "step1", "step2", "step3". Layout the second and
+     subsequent boxes with \`layout: { kind: 'right_of', of: '<prev id>' }\`
+     so they line up cleanly.
+  2. N-1 \`link_nodes\` connecting them in order, with
+     \`kind: 'depends_on'\` (the closest semantic to "step → next step").
+     Example: \`{ type: 'link_nodes', from: 'step1', to: 'step2',
+     kind: 'depends_on' }\`.
+
+CRITICAL: Use \`link_nodes\` for flowchart connections, NOT \`create_arrow\`.
+\`link_nodes\` produces a BOUND arrow that auto-routes between the two
+shape ids — the line snaps to box edges, follows the boxes if they move,
+and never drifts off-screen. \`create_arrow\` takes explicit {x,y}
+coordinates which you would have to guess (badly) and which won't follow
+the boxes you just created. Use \`create_arrow\` only when the user asks
+for a free-floating arrow at a specific position with no source/target.
+
 Do NOT switch shapes mid-flow (e.g. 3 rectangles and 1 ellipse) unless
-the user explicitly asks for a terminator. Do NOT skip the arrows.
+the user explicitly asks for a terminator. Do NOT skip the arrows. Emit
+the boxes FIRST so the link_nodes refs resolve cleanly.
 
 ID RESOLUTION:
 When the user refers to a shape by CONTENT ("the blocker", "the SMB
