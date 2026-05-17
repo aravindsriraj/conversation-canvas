@@ -295,18 +295,34 @@ export function AgentPanel({ roomId, isOpen, onClose }: Props) {
 				className="flex-1 overflow-y-auto px-5 py-4 flex flex-col gap-4"
 			>
 				{turns.length === 0 ? (
-					<div className="flex flex-col gap-3 mt-2">
+					<div className="flex flex-col gap-4 mt-2">
 						<div className="font-mono text-[10px] uppercase tracking-[0.22em] text-faded-ink">
-							§ Empty
+							§ Start a thread
 						</div>
-						<p className="font-display italic text-[15px] leading-[1.55] text-faded-ink m-0">
+						<p className="font-display italic text-[16px] leading-[1.5] text-ink m-0">
 							Ask me to summarize, rearrange, or add to the
-							canvas.
+							canvas. I'll read what's there and act in up to
+							three steps.
 						</p>
-						<div className="font-mono text-[11px] text-faded-ink mt-2 leading-relaxed">
-							<div>“What was decided about the timeline?”</div>
-							<div>“Add a question card about the budget.”</div>
-							<div>“Summarize the open proposals.”</div>
+						<div className="font-mono text-[11px] text-faded-ink uppercase tracking-[0.18em] mt-2">
+							Try one
+						</div>
+						<div className="flex flex-col gap-2">
+							{[
+								'Summarize what we decided so far.',
+								'Add a yellow sticky for the post-Q3 review.',
+								'Draw a flowchart from idea to launch.',
+								'Make the blocker red and align everything left.',
+							].map((sample) => (
+								<button
+									key={sample}
+									type="button"
+									onClick={() => setInput(sample)}
+									className="text-left px-3 py-2 border border-hairline rounded-sm bg-paper hover:border-ink hover:text-ink transition-colors font-mono text-[12px] leading-[1.45] text-faded-ink"
+								>
+									{sample}
+								</button>
+							))}
 						</div>
 					</div>
 				) : (

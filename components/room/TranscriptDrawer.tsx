@@ -34,6 +34,10 @@ interface Props {
  *   · Speaker chip on the left, sentence text on the right.
  *   · No line numbers. Whitespace and paragraph breaks carry the structure.
  */
+// localStorage key for "user has seen the mic primer once". Skipped on
+// subsequent clicks so we don't gate every recording behind a modal.
+const MIC_PRIMER_SEEN_KEY = 'conversation-canvas:mic-primer-seen'
+
 export function TranscriptDrawer({
 	wsRef,
 	roomId,
@@ -45,6 +49,10 @@ export function TranscriptDrawer({
 	const [error, setError] = useState<string | null>(null)
 	const [isOpen, setIsOpen] = useState(false)
 	const [elapsedSec, setElapsedSec] = useState(0)
+	// True while the first-time mic explainer is being shown. Once
+	// dismissed (Continue OR Skip) we set the localStorage key so it
+	// never shows again on this device.
+	const [showMicPrimer, setShowMicPrimer] = useState(false)
 	const stopRef = useRef<(() => Promise<void>) | null>(null)
 	const bodyRef = useRef<HTMLDivElement>(null)
 	const analyserRef = useRef<AnalyserNode | null>(null)
@@ -152,6 +160,44 @@ export function TranscriptDrawer({
 		}
 	}, [recording])
 
+	/*
+	 * Two-stage start. First click checks localStorage for a "primer seen"
+	 * flag — if absent, we show a small modal explaining what's about to
+	 * happen (mic permission + Speechmatics + Gemini). The actual mic
+	 * acquisition only fires from the modal's "Continue" button OR
+	 * directly on subsequent clicks. This prevents the silent
+	 * getUserMedia prompt from confusing first-time users.
+	 */
+	function handleListenClick() {
+		if (recording) {
+			void stop()
+			return
+		}
+		let seen = false
+		try {
+			seen = localStorage.getItem(MIC_PRIMER_SEEN_KEY) === '1'
+		} catch {
+			// localStorage can throw in some private-browsing modes; treat as
+			// "not seen" and show the primer anyway.
+			seen = false
+		}
+		if (seen) {
+			void start()
+		} else {
+			setShowMicPrimer(true)
+		}
+	}
+
+	function dismissMicPrimer(thenStart: boolean) {
+		try {
+			localStorage.setItem(MIC_PRIMER_SEEN_KEY, '1')
+		} catch {
+			// best effort — if storage is unavailable they'll see it again
+		}
+		setShowMicPrimer(false)
+		if (thenStart) void start()
+	}
+
 	async function start() {
 		setError(null)
 		try {
@@ -194,11 +240,65 @@ export function TranscriptDrawer({
 
 	return (
 		<>
+			{/* ── First-time mic primer modal ──────────────────────────────── */}
+			{showMicPrimer && (
+				<div
+					className="fixed inset-0 z-[600] flex items-center justify-center bg-ink/30 backdrop-blur-sm"
+					role="dialog"
+					aria-modal="true"
+					aria-labelledby="mic-primer-title"
+				>
+					<div
+						className="max-w-[460px] mx-6 bg-paper border border-hairline rounded-sm p-7"
+						style={{
+							boxShadow: '0 28px 60px -28px rgba(26,24,21,0.35)',
+						}}
+					>
+						<div className="font-mono text-[10px] uppercase tracking-[0.22em] text-faded-ink mb-4">
+							§ Before you start
+						</div>
+						<h2
+							id="mic-primer-title"
+							className="font-display text-[26px] tracking-tight text-ink leading-[1.15] mb-4"
+						>
+							You're about to let the canvas listen.
+						</h2>
+						<div className="font-sans text-[14px] leading-[1.55] text-ink space-y-3">
+							<p>
+								Your browser will ask for microphone access. Audio
+								goes to Speechmatics for live transcription, then to
+								Gemini for structuring — nothing is stored as audio.
+							</p>
+							<p className="text-faded-ink">
+								Speak naturally. Cards for proposals, decisions and
+								action items will appear on the canvas as you talk.
+							</p>
+						</div>
+						<div className="mt-7 flex flex-wrap gap-3 items-center">
+							<button
+								type="button"
+								onClick={() => dismissMicPrimer(true)}
+								className="px-5 py-2.5 bg-ink text-paper rounded-sm font-display text-[11px] uppercase tracking-[0.18em] hover:bg-[#2a2723] transition-colors"
+							>
+								Allow microphone
+							</button>
+							<button
+								type="button"
+								onClick={() => dismissMicPrimer(false)}
+								className="px-3 py-2.5 font-mono text-[11px] uppercase tracking-[0.18em] text-faded-ink hover:text-ink transition-colors"
+							>
+								Not now
+							</button>
+						</div>
+					</div>
+				</div>
+			)}
+
 			{/* ── Top-center toolbar: mic FAB + transcript toggle ────────── */}
 			<div className="fixed top-4 left-1/2 -translate-x-1/2 z-[500] flex items-center gap-2">
 				<button
 					type="button"
-					onClick={recording ? stop : start}
+					onClick={handleListenClick}
 					aria-label={recording ? 'Stop recording' : 'Start recording'}
 					className={[
 						'px-4 py-2 rounded-sm border',

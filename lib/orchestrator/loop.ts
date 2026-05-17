@@ -188,8 +188,18 @@ function filterDuplicateCreates(actions: Action[], room: Room): Action[] {
 	const pastByType = new Map<string, { id: string; content: string }[]>()
 	const pastL3IdByType = new Map<string, string>() // type → existing id
 	const existingIds = new Set<string>() // every model id that has a shape
+	// Set of "from::to::kind" tuples for every link_nodes already emitted.
+	// Used in the per-action loop below to skip duplicate arrows the model
+	// re-emits while Speechmatics is still re-finalizing the same utterance.
+	// Without this guard, the canvas accumulates layered identical arrows
+	// since each tldraw arrow shape gets a fresh id even when its
+	// (from, to, kind) tuple matches a previous one.
+	const pastLinks = new Set<string>()
 	for (const past of room.actionHistory) {
 		if ('id' in past && typeof past.id === 'string') existingIds.add(past.id)
+		if (past.type === 'link_nodes') {
+			pastLinks.add(`${past.from}::${past.to}::${past.kind}`)
+		}
 		if (isL3Widget(past.type)) {
 			if (!pastL3IdByType.has(past.type) && 'id' in past) {
 				pastL3IdByType.set(past.type, past.id)
@@ -205,9 +215,26 @@ function filterDuplicateCreates(actions: Action[], room: Room): Action[] {
 	const droppedIds = new Set<string>() // ids that were dedup'd in this tick
 	const localL3IdByType = new Map<string, string>() // also dedup intra-tick
 	const localTextByType = new Map<string, { id: string; content: string }[]>()
+	const localLinks = new Set<string>() // intra-tick link dedup
 
 	const out: Action[] = []
 	for (const a of actions) {
+		// Link-node dedup: same (from, to, kind) tuple already emitted →
+		// drop silently. Catches re-emissions when the same utterance
+		// re-finalizes inside the 90s transcript window.
+		if (a.type === 'link_nodes') {
+			const key = `${a.from}::${a.to}::${a.kind}`
+			if (pastLinks.has(key) || localLinks.has(key)) {
+				console.log(
+					`[orchestrator] DEDUP dropped link_nodes (already exists: ${key})`,
+				)
+				continue
+			}
+			localLinks.add(key)
+			out.push(a)
+			continue
+		}
+
 		// L3 widgets: at most one per type allowed
 		if (isL3Widget(a.type) && 'id' in a) {
 			const existingId =

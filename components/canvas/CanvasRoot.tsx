@@ -39,6 +39,16 @@ export function CanvasRoot({ roomId, canvasName, enrollment }: CanvasRootProps) 
 	const [speakers, setSpeakers] = useState<SpeakerRegistry>({})
 	const [accessError, setAccessError] = useState<string | null>(null)
 	const [agentOpen, setAgentOpen] = useState(false)
+	// Autosave status pill — flips through 'saving' → 'saved' → 'idle'
+	// as the snapshot debouncer fires. Visible near the canvas-name pill
+	// so users can see persistence happening without taking it on faith.
+	const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>(
+		'idle',
+	)
+	// True once the canvas has at least one shape (either from history
+	// replay or from a fresh user edit). Drives the empty-canvas hint
+	// overlay below.
+	const [hasShapes, setHasShapes] = useState(false)
 	const { isLoaded, isSignedIn, getToken } = useAuth()
 	// We keep a ref alongside the state so the WS message handler reads the
 	// latest registry without forcing the WS effect to re-run (which would
@@ -55,6 +65,32 @@ export function CanvasRoot({ roomId, canvasName, enrollment }: CanvasRootProps) 
 
 	const onMount = useCallback((editor: Editor) => {
 		editorRef.current = editor
+	}, [])
+
+	// Track whether the canvas has any shapes. Drives the empty-state hint.
+	// We poll for the editor to mount (the prop callback fires async after
+	// <Tldraw> renders), then attach a document-scope listener that
+	// recomputes after every shape change.
+	useEffect(() => {
+		let attachInterval: ReturnType<typeof setInterval> | null = null
+		let unsubscribe: (() => void) | null = null
+		const tick = () => {
+			const editor = editorRef.current
+			if (!editor) return
+			setHasShapes(editor.getCurrentPageShapes().length > 0)
+		}
+		attachInterval = setInterval(() => {
+			const editor = editorRef.current
+			if (!editor) return
+			if (attachInterval) clearInterval(attachInterval)
+			attachInterval = null
+			tick()
+			unsubscribe = editor.store.listen(tick, { scope: 'document' })
+		}, 80)
+		return () => {
+			if (attachInterval) clearInterval(attachInterval)
+			unsubscribe?.()
+		}
 	}, [])
 
 	// Snapshot save loop. Subscribes to user-initiated document changes
@@ -79,15 +115,24 @@ export function CanvasRoot({ roomId, canvasName, enrollment }: CanvasRootProps) 
 			timer = setTimeout(saveNow, 1500)
 		}
 
+		// Auto-hide timer for the "Saved" status pill. We don't want it
+		// flashing every 1.5s during a busy edit session — only when the
+		// burst has actually settled.
+		let savedTimer: ReturnType<typeof setTimeout> | null = null
+
 		const saveNow = async () => {
 			if (cancelled) return
 			const editor = editorRef.current
 			if (!editor) return
 			if (!hasLoadedRef.current) return
+			setSaveStatus('saving')
 			try {
 				const { document } = getSnapshot(editor.store)
 				const token = await getToken().catch(() => null)
-				if (!token) return
+				if (!token) {
+					setSaveStatus('idle')
+					return
+				}
 				await fetch(`/api/canvases/${roomId}/snapshot`, {
 					method: 'PUT',
 					headers: {
@@ -96,8 +141,14 @@ export function CanvasRoot({ roomId, canvasName, enrollment }: CanvasRootProps) 
 					},
 					body: JSON.stringify({ document }),
 				})
+				setSaveStatus('saved')
+				if (savedTimer) clearTimeout(savedTimer)
+				savedTimer = setTimeout(() => {
+					if (!cancelled) setSaveStatus('idle')
+				}, 1800)
 			} catch (err) {
 				console.warn('[canvas] snapshot save failed', err)
+				setSaveStatus('idle')
 			}
 		}
 
@@ -337,11 +388,9 @@ export function CanvasRoot({ roomId, canvasName, enrollment }: CanvasRootProps) 
 				onClose={() => setAgentOpen(false)}
 			/>
 			{/*
-				Top-left navigation pill: back link to dashboard + canvas name.
-				Sits above tldraw's z-stack so it stays clickable even when the
-				editor has focus. Hairline-framed paper to match the Scriptorium
-				chrome — fits in next to tldraw's own toolbar without competing
-				visually.
+				Top-left navigation pill: back link to dashboard + canvas name
+				+ autosave status. Sits above tldraw's z-stack so it stays
+				clickable even when the editor has focus.
 			*/}
 			<div className="absolute top-2 left-2 z-[450] flex items-center gap-2 px-3 py-1.5 bg-paper/90 backdrop-blur-[2px] border border-hairline rounded-sm">
 				<a
@@ -363,7 +412,64 @@ export function CanvasRoot({ roomId, canvasName, enrollment }: CanvasRootProps) 
 						</span>
 					</>
 				)}
+				{/*
+					Autosave indicator — visible while a snapshot save is in
+					flight ("Saving") and for ~1.8s after a successful save
+					("Saved"). Hidden in idle state so the pill doesn't carry
+					a permanent low-signal label.
+				*/}
+				{saveStatus !== 'idle' && (
+					<>
+						<span className="w-px h-3 bg-hairline" aria-hidden="true" />
+						<span
+							className={`font-mono text-[10px] uppercase tracking-[0.18em] flex items-center gap-1.5 transition-opacity ${
+								saveStatus === 'saving' ? 'text-faded-ink' : 'text-olive'
+							}`}
+						>
+							<span
+								className={`w-1.5 h-1.5 rounded-full ${
+									saveStatus === 'saving' ? 'bg-ochre' : 'bg-olive'
+								}`}
+								aria-hidden="true"
+							/>
+							{saveStatus === 'saving' ? 'Saving' : 'Saved'}
+						</span>
+					</>
+				)}
 			</div>
+
+			{/*
+				Empty-canvas hint — visible only when the canvas truly has no
+				shapes yet. Auto-dismisses the moment the first shape lands
+				(via the `hasShapes` listener above). Centered overlay,
+				pointer-events: none so the user can still pan/zoom through
+				it. Lives below tldraw's z-stack so the toolbars float above.
+			*/}
+			{!hasShapes && (
+				<div
+					className="absolute inset-0 pointer-events-none flex items-center justify-center"
+					style={{ right: agentOpen ? 360 : 0, transition: 'right 280ms cubic-bezier(.22,.61,.36,1)' }}
+				>
+					<div className="max-w-[440px] text-center px-8">
+						<div className="font-mono text-[10px] uppercase tracking-[0.22em] text-faded-ink mb-4">
+							§ Empty canvas
+						</div>
+						<h2 className="font-display italic text-[28px] leading-[1.25] tracking-tight text-ink mb-5">
+							Hit <span className="not-italic">Listen</span> and start talking.
+						</h2>
+						<p className="font-sans text-[14px] leading-[1.55] text-faded-ink mb-6">
+							Cards for proposals, decisions and action items will
+							appear here as you speak. Or click <span className="text-ink">Ask AI</span>{' '}
+							to type instructions instead.
+						</p>
+						<div className="font-mono text-[11px] leading-[1.7] text-faded-ink/80">
+							<div>"Draw a flowchart from idea to launch."</div>
+							<div>"Add a sticky for the post-Q3 review."</div>
+							<div>"Rank these by impact and effort."</div>
+						</div>
+					</div>
+				</div>
+			)}
 		</div>
 	)
 }
