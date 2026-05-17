@@ -1,10 +1,10 @@
 <div align="center">
-  <img src="public/banner.jpg" alt="Conversation Canvas — a meeting captured as a structured canvas with cards and arrows" width="100%" />
+  <img src="public/banner.jpg" alt="Conversation Canvas — your thoughts captured as a structured canvas with cards and arrows" width="100%" />
 </div>
 
 # Conversation Canvas
 
-> A voice-driven canvas that turns your meeting into a structured document — live. Then keeps shaping itself by voice or chat.
+> A voice-first thinking canvas. Talk through a decision, a plan, or a problem; what you say becomes typed cards you can keep refining by voice or chat.
 
 **Live demo · [canvas.ai-application.xyz](https://canvas.ai-application.xyz)**
 
@@ -14,13 +14,13 @@ Built for **Milan AI Week 2026**.
 
 ## What it is
 
-Existing meeting tools fall into three buckets — recorders give you hours of audio nobody re-listens to; transcripts give you walls of text nobody reads twice; AI summaries give you paragraphs of prose that lose the structure of the actual conversation.
+Most voice tools fall into three buckets — voice memos give you audio you'll never replay; transcripts give you walls of text nobody reads twice; chat-with-an-AI gives you a scrolling log that loses the structure of the actual reasoning.
 
-**Conversation Canvas gives you a typed, navigable graph of what was said** — drawn live, editable by voice or chat, and waiting where you left it next week.
+**Conversation Canvas gives you a typed, navigable graph of what you talked through** — drawn live, editable by voice or chat, and waiting where you left it next week.
 
-Talk through your meeting. The canvas catches what matters — proposals, decisions, commitments, blockers, open questions — and connects them by the relationships you spoke aloud. By the end you have a document, not a recording.
+Talk through anything you're chewing on — a decision, a plan, a problem. The canvas catches what matters — proposals, decisions, commitments, blockers, open questions — and connects them by the relationships you spoke aloud. By the end you have an artifact, not a recording.
 
-You can also shape the canvas after the fact. *"Add a yellow sticky for the post-Q3 review."* *"Make the blocker red and align everything left."* *"Draw a flowchart with rectangle → ellipse → diamond."* The chat agent reasons in up to three steps and responds.
+You can also shape the canvas after the fact. *"Add a yellow sticky for the post-Q3 review."* *"Rank everything by impact and effort."* *"Draw a flowchart with rectangle → ellipse → diamond."* The chat agent reads the canvas, plans, and acts in up to four reasoning steps.
 
 ---
 
@@ -28,7 +28,7 @@ You can also shape the canvas after the fact. *"Add a yellow sticky for the post
 
 `public/hero.mp4` — also embedded on the [live landing page](https://canvas.ai-application.xyz).
 
-Covers seven scenes: problem hook → title → voice-driven cards (proposals, decision, commitment, blocker, question, with `counters` / `decides` / `blocks` arrows) → on-demand widgets (priority matrix, budget allocator) → chat-panel direct commands (sticky / recolor / align / zoom) → differentiators → CTA.
+Covers seven scenes: problem hook → title → voice-driven cards (proposals, decision, commitment, blocker, question, with `counters` / `decides` / `blocks` arrows) → on-demand widgets (priority matrix, budget allocator) → chat-panel direct commands (sticky / shape / align / zoom) → differentiators → CTA.
 
 ---
 
@@ -39,7 +39,7 @@ Two AI surfaces share the same 28-action vocabulary:
 | Surface | Job | SDK primitive |
 |---|---|---|
 | **Voice orchestrator** | Passive observer. Reads the 90s transcript window every ~3s + current canvas + long-term memory; emits typed actions in one structured-output call. | `generateObject` (Vercel AI SDK) — single-shot, no reasoning loop |
-| **Chat agent** | Active multi-step reasoner. You type a request; the agent reads the canvas, plans, emits one or more actions, observes whether each landed, and adapts. Up to 3 reasoning steps per turn. | `streamText` + `emit_action` tool with `stopWhen: stepCountIs(3)` (Vercel AI SDK) |
+| **Chat agent** | Active multi-step reasoner. You type a request; the agent reads the canvas, plans, emits one or more actions, observes whether each landed, and adapts. Up to 4 reasoning steps per turn. | `ToolLoopAgent` + `emit_action` writer + 5 read tools (`read_canvas`, `find_shapes`, `count_links`, `read_memory`, `read_transcript_window`) with `stopWhen: stepCountIs(4)` (Vercel AI SDK) |
 
 Both flows feed into the same `Action` discriminated union (`lib/actions/schema.ts`), validated by Zod before any side-effect, then broadcast over WebSocket to all clients of the room.
 
@@ -65,7 +65,7 @@ Speechmatics  ─►  WS server  ─►  Voice orchestrator (Gemini 3 Flash)
 
 ## What's on the canvas
 
-**Five meeting cards** (drawn automatically from your conversation):
+**Five thinking cards** (drawn automatically from what you say):
 Proposal · Decision · Commitment · Blocker · Open Question — connected by typed arrows (`counters`, `decides`, `blocks`, `depends_on`, `supports`, `contradicts`).
 
 **Three native primitives** (drawn on request):

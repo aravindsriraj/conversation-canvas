@@ -270,8 +270,9 @@ export function TranscriptDrawer({
 								Gemini for structuring — nothing is stored as audio.
 							</p>
 							<p className="text-faded-ink">
-								Speak naturally. Cards for proposals, decisions and
-								action items will appear on the canvas as you talk.
+								Talk through whatever you're thinking about. The
+								canvas will turn what you say into typed cards as
+								you go.
 							</p>
 						</div>
 						<div className="mt-7 flex flex-wrap gap-3 items-center">

@@ -78,13 +78,13 @@ export default function Home() {
 							letterSpacing: '-0.02em',
 						}}
 					>
-						Your meeting,{' '}
+						Your thoughts,{' '}
 						<em className="font-display italic">as a canvas</em>.
 					</h1>
 					<p className="mt-9 max-w-[620px] text-[19px] leading-[1.55] text-ink font-sans">
-						Talk through your meeting. Watch the canvas build itself —
-						cards for every decision, action item and blocker, drawn
-						live as you speak. Then keep shaping it by voice or chat.
+						Talk through anything you're chewing on — a decision, a
+						plan, a problem. The canvas listens and turns what you
+						say into typed cards you can keep refining by voice or chat.
 					</p>
 					<div className="mt-10 flex flex-wrap gap-3 items-center">
 						<Show when="signed-out">
@@ -164,30 +164,30 @@ export default function Home() {
 						§ I · The problem
 					</div>
 					<h2 className="font-display text-[36px] sm:text-[48px] md:text-[64px] leading-[1.02] tracking-tight text-ink max-w-[900px] mb-14">
-						Meetings end. The work disappears.
+						You talk it through. Then it's gone.
 					</h2>
 					{/*
 					 * Three "voices" — short verbatim-style quotes from the kinds
-					 * of moments this product would have saved. More vivid than
-					 * a numbered list; the reader hears their own meetings in
-					 * each line. Attribution is the WHERE / WHEN of the
-					 * conversation, in mono, to anchor it in a real scene.
+					 * of solo-thinking moments this product would have saved.
+					 * More vivid than a numbered list; the reader hears their
+					 * own reasoning in each line. Attribution is the WHERE /
+					 * WHEN of the moment, in mono, to anchor it in a real scene.
 					 */}
 					<div className="grid grid-cols-1 md:grid-cols-3 gap-x-10 gap-y-12 max-w-[1100px]">
 						{[
 							{
 								quote:
-									'“Wait — what did we decide about pricing last week?”',
-								where: 'A Slack thread · Wednesday, 4:42pm',
+									'“Wait — what was the angle I had on this last week?”',
+								where: 'A Tuesday morning · Trying to remember',
 							},
 							{
 								quote:
-									'“I thought Alex was going to own it? Or was it Sam?”',
-								where: 'A standup · two sprints later',
+									'“I had the whole plan in my head an hour ago.”',
+								where: 'A blank Notion page · Cursor blinking',
 							},
 							{
 								quote:
-									'“There’s a recording but it’s 47 minutes long. Anyone want to listen back?”',
+									'“Voice memos again? I’ll never re-listen to those.”',
 								where: 'Silence',
 							},
 						].map((v) => (
@@ -218,7 +218,7 @@ export default function Home() {
 							{
 								n: '01',
 								title: 'Talk like normal.',
-								body: 'Start a canvas, hit listen, run your meeting. No tags, no formats, no special prompts.',
+								body: 'Start a canvas, hit listen, think out loud. No tags, no formats, no special prompts.',
 							},
 							{
 								n: '02',
@@ -228,7 +228,7 @@ export default function Home() {
 							{
 								n: '03',
 								title: 'Shape it however you like.',
-								body: 'Add a sticky note. Move things. Make the blocker red. Ask for a budget split. Voice or typing — it understands both.',
+								body: 'Add a sticky note. Move things. Add a budget split. Rank by impact and effort. Voice or typing — it understands both.',
 							},
 						].map((s) => (
 							<div key={s.n}>
@@ -257,7 +257,7 @@ export default function Home() {
 						Everything a whiteboard could be — and then some.
 					</h2>
 					<p className="font-sans text-[18px] leading-[1.5] text-faded-ink max-w-[760px]">
-						The meeting cards write themselves from what you say.
+						The thinking cards write themselves from what you say.
 						Anything else — diagrams, sticky notes, priority
 						matrices, budget splits — you can just ask for.
 					</p>
@@ -377,27 +377,26 @@ export default function Home() {
 				</div>
 			</section>
 
-			{/* ── §5 · POSITIONING (vs other meeting tools) ─────────────── */}
+			{/* ── §5 · POSITIONING (vs other voice / AI tools) ──────────── */}
 			<section className="border-t border-hairline bg-[rgba(26,24,21,0.018)] stagger-5">
 				<div className="max-w-[1200px] mx-auto px-5 sm:px-8 py-24">
 					<div className="font-mono text-[10px] uppercase tracking-[0.22em] text-faded-ink mb-8">
 						§ IV · What it isn’t
 					</div>
 					<h2 className="font-display text-[36px] sm:text-[48px] md:text-[64px] leading-[1.02] tracking-tight text-ink max-w-[1000px] mb-6">
-						Not the meeting tool you’ve used before.
+						Not another voice-to-text tool.
 					</h2>
 					<p className="font-sans text-[18px] leading-[1.55] text-faded-ink max-w-[760px] mb-16">
-						Most tools that follow your meetings fall into three
-						buckets. None of them produce the document you actually
-						wanted.
+						Most tools that listen to you fall into three buckets.
+						None of them produce the artifact you actually wanted.
 					</p>
 
 					<div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-[1100px]">
 						{[
 							{
-								tag: 'Recorders',
-								gives: 'Hours of audio.',
-								miss: 'You’ll never re-listen.',
+								tag: 'Voice memos',
+								gives: 'Audio you record.',
+								miss: 'You’ll never replay it.',
 							},
 							{
 								tag: 'Transcripts',
@@ -405,8 +404,8 @@ export default function Home() {
 								miss: 'Nobody opens it twice.',
 							},
 							{
-								tag: 'AI summaries',
-								gives: 'A paragraph or two.',
+								tag: 'Chat with an AI',
+								gives: 'A scrolling log.',
 								miss: 'The structure is gone.',
 							},
 						].map((bucket) => (
@@ -433,8 +432,8 @@ export default function Home() {
 						</div>
 						<p className="font-display text-[32px] sm:text-[40px] leading-[1.15] text-ink tracking-tight">
 							A <em className="italic">typed, navigable graph</em> of what
-							was said — drawn live, editable by voice or chat, and
-							waiting where you left it next week.
+							you talked through — drawn live, editable by voice or chat,
+							and waiting where you left it next week.
 						</p>
 					</div>
 				</div>
@@ -478,9 +477,9 @@ export default function Home() {
 			<section className="border-t border-hairline bg-[rgba(46,83,55,0.025)]">
 				<div className="max-w-[900px] mx-auto px-5 sm:px-8 py-20">
 					<blockquote className="font-display italic text-[26px] sm:text-[30px] leading-[1.4] text-ink">
-						“I built this because I was tired of meetings ending and
-						the work going nowhere. The canvas is the document I
-						always wished I had at the end of every call.”
+						“I built this because I'd spend an hour thinking through a
+						decision out loud and have nothing to show for it after.
+						The canvas is the artifact I always wished I had.”
 					</blockquote>
 					<div className="mt-6 font-mono text-[11px] uppercase tracking-[0.22em] text-faded-ink">
 						— Aravindan Sriraj

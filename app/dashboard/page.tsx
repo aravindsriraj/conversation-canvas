@@ -63,8 +63,8 @@ export default async function DashboardPage() {
 							§ Empty shelf
 						</div>
 						<p className="text-[17px] leading-[1.55] text-faded-ink max-w-[540px]">
-							No canvases yet — start your first meeting and the orchestrator
-							will compose a typed record of what was decided.
+							No canvases yet — start your first canvas and the orchestrator
+							will compose a typed record of what you talk through.
 						</p>
 					</div>
 				) : (

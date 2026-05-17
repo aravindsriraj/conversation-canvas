@@ -302,17 +302,17 @@ export function AgentPanel({ roomId, isOpen, onClose }: Props) {
 						<p className="font-display italic text-[16px] leading-[1.5] text-ink m-0">
 							Ask me to summarize, rearrange, or add to the
 							canvas. I'll read what's there and act in up to
-							three steps.
+							four steps.
 						</p>
 						<div className="font-mono text-[11px] text-faded-ink uppercase tracking-[0.18em] mt-2">
 							Try one
 						</div>
 						<div className="flex flex-col gap-2">
 							{[
-								'Summarize what we decided so far.',
+								'Summarize what I’ve talked through so far.',
 								'Add a yellow sticky for the post-Q3 review.',
 								'Draw a flowchart from idea to launch.',
-								'Make the blocker red and align everything left.',
+								'Rank everything on the canvas by impact and effort.',
 							].map((sample) => (
 								<button
 									key={sample}

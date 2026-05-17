@@ -494,8 +494,8 @@ export function CanvasRoot({ roomId, canvasName, enrollment }: CanvasRootProps) 
 							Hit <span className="not-italic">Listen</span> and start talking.
 						</h2>
 						<p className="font-sans text-[14px] leading-[1.55] text-faded-ink mb-6">
-							Cards for proposals, decisions and action items will
-							appear here as you speak. Or click <span className="text-ink">Ask AI</span>{' '}
+							The canvas will turn what you say into typed cards as
+							you go. Or click <span className="text-ink">Ask AI</span>{' '}
 							to type instructions instead.
 						</p>
 						<div className="font-mono text-[11px] leading-[1.7] text-faded-ink/80">
@@ -539,7 +539,7 @@ export function CanvasRoot({ roomId, canvasName, enrollment }: CanvasRootProps) 
 									01
 								</span>
 								<span>
-									Hit <span className="font-medium">Listen</span> (top right) so the canvas can hear the meeting.
+									Hit <span className="font-medium">Listen</span> (top right) so the canvas can hear what you're saying.
 								</span>
 							</li>
 							<li className="flex gap-3">

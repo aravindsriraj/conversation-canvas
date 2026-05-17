@@ -17,21 +17,21 @@ Conversation Canvas
 ### Short Description
 
 ```
-A voice-driven canvas that turns your meeting into a structured document — live. Then keeps shaping itself by voice or chat.
+A voice-first thinking canvas. Talk through a decision, plan, or problem; what you say becomes typed cards you can refine by voice or chat.
 ```
 
 ### Long Description
 
 ```
-Conversation Canvas is a real-time, voice-driven canvas that turns meetings into structured documents while you talk. Speak naturally; the canvas catches what matters — proposals, decisions, commitments, blockers, open questions — and draws them as cards connected by the relationships you spoke aloud. By the end of the call you have a navigable graph of what was decided, not a wall of transcript nobody will re-read.
+Conversation Canvas is a real-time, voice-first thinking canvas. Talk through anything you're chewing on — a decision, a plan, a problem you're working out — and the canvas catches what matters as you speak. Proposals, decisions, commitments, blockers, and open questions appear as typed cards, connected by the relationships you spoke aloud. By the end you have a navigable artifact of how you reasoned through the problem, not an hour of audio you'll never replay.
 
-Every meeting tool today falls into one of three buckets: recorders give you hours of audio you'll never replay; transcripts give you walls of text; AI summaries give you paragraphs of prose that lose the structure of the actual conversation. Conversation Canvas gives you a typed, navigable graph — drawn live, editable by voice or chat, and waiting where you left it next week.
+Most voice tools fall into three buckets: voice memos give you audio nobody re-listens to; transcripts give you walls of text nobody reads twice; chat-with-an-AI gives you a scrolling log that loses the structure of the actual reasoning. Conversation Canvas gives you a typed, navigable graph — drawn live, editable by voice or chat, and waiting where you left it next week.
 
-The product runs two AI surfaces over the same 28-action vocabulary. The voice orchestrator listens passively to the meeting and emits cards autonomously. The chat agent is an interactive multi-step reasoner — you can type "delete the question if it's been answered, otherwise add a deadline" and it will read the canvas, decide what to do, and act in sequence. Both share a long-term memory that persists across sessions: re-open a canvas tomorrow and the system still remembers what you discussed.
+The product runs two AI surfaces over the same 28-action vocabulary. The voice orchestrator listens passively and emits cards autonomously every ~3 seconds. The chat agent is an interactive multi-step reasoner — you can type "delete the question if it's been answered, otherwise add a deadline" and it will read the canvas, plan, and act in sequence (up to four reasoning steps per turn). Both share a long-term memory that persists across sessions: re-open a canvas tomorrow and the system still remembers what you talked through.
 
-Beyond the five meeting card types, the canvas understands everything you'd draw on a whiteboard: sticky notes, geometric shapes (rectangle, ellipse, triangle, diamond, star, heart, check-box, and 12 more), free-form arrows, priority matrices, budget allocators, alignment, deletion, recolor — anything you'd do with the mouse, you can do by asking, in voice or text.
+Beyond the five thinking-card types, the canvas understands everything you'd draw on a whiteboard: sticky notes, geometric shapes (rectangle, ellipse, triangle, diamond, star, heart, check-box, and 12 more), free-form arrows, priority matrices, budget allocators, alignment, deletion, recolor — anything you'd do with the mouse, you can do by asking, in voice or text.
 
-Built end-to-end in 5 days for Milan AI Week 2026. Stack: Speechmatics for real-time speech-to-text; Gemini 3 Flash via Vercel AI SDK for the orchestrator and chat agent; Gemini 3.1 Flash Lite for async memory compression; tldraw v3 for the canvas; Next.js 16 + custom WS server for live sync; Clerk for production auth; Neon Postgres for persistence (action history, chat turns, summarized memory); deployed on a Vultr VM at https://canvas.ai-application.xyz with Let's Encrypt TLS.
+Built end-to-end in 5 days for Milan AI Week 2026. Stack: Speechmatics for real-time speech-to-text; Gemini 3 Flash via Vercel AI SDK for the orchestrator and chat agent (the latter built on the SDK's ToolLoopAgent primitive); Gemini 3.1 Flash Lite for async memory compression; tldraw v3 for the canvas; Next.js 16 + custom WS server for live sync; Clerk for production auth; Neon Postgres for persistence (action history, chat turns, summarized memory); deployed on a Vultr VM at https://canvas.ai-application.xyz with Let's Encrypt TLS.
 ```
 
 ### Technology Tags
@@ -45,7 +45,7 @@ Gemini, Speechmatics, Next.js, tldraw, Vercel AI SDK, Clerk, Neon Postgres, Type
 ### Category Tags
 
 ```
-Productivity, AI Agents, Voice AI, Collaboration, Knowledge Management
+Productivity, AI Agents, Voice AI, Thinking Tools, Knowledge Management
 ```
 
 ---
@@ -114,16 +114,16 @@ https://canvas.ai-application.xyz
 
 ## Notes for the judge / reader
 
-If you want to try the product fast, **the live URL works end-to-end**: sign in with Google or email (production Clerk keys, no dev banner), create a canvas, hit the "Listen" mic in the toolbar, and start talking. Cards should appear within ~3-5 seconds of each substantive utterance. You can also click "Ask AI" in the toolbar to type instructions directly.
+If you want to try the product fast, **the live URL works end-to-end**: sign in with Google or email (production Clerk keys, no dev banner), create a canvas, hit the "Listen" mic in the toolbar, and start talking out loud about something you're chewing on. Cards should appear within ~3-5 seconds of each substantive utterance. You can also click "Ask AI" in the toolbar to type instructions directly.
 
-A reference script (for trying voice deterministically): see the README's "How it works" section, or speak any of these in sequence:
+A reference script (for trying voice deterministically) — think out loud as one person, speaking these in sequence:
 
-1. "I think we should target enterprise customers in Q3."
-2. "Or SMB — three times higher conversion."
-3. "OK, agreed. Let's go SMB."
-4. "Alice will own it by next Friday."
-5. "Add a yellow sticky for the post-Q3 review."
-6. "Rank these by impact and effort."
-7. "Make the blocker red and align the cards to the left."
+1. "Okay, planning Q3. First proposal — focus on the Lisbon SMB market."
+2. "Counter-argument: pursue Berlin enterprise instead. Higher contract value."
+3. "Locking it in — the decision is Berlin enterprise this quarter, contingent on SOC 2 by July 15."
+4. "I'm committing to landing one signed Berlin pilot by end of August."
+5. "Blocker — we need to hire a senior backend engineer first."
+6. "Add a yellow sticky for the post-Q3 review."
+7. "Rank these by impact and effort."
 
-By the end the canvas should have: 2 proposal cards with a `counters` arrow, 1 decision (locked, with `decides` arrows back to both proposals), 1 commitment (Alice, by next Friday), 1 yellow sticky, 1 priority matrix, and all cards aligned to the left.
+By the end the canvas should have: 2 proposal cards with a `counters` arrow, 1 decision (locked, with `decides` arrows back to both proposals), 1 commitment, 1 blocker, 1 yellow sticky, and 1 priority matrix.
