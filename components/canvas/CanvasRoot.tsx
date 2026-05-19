@@ -419,7 +419,18 @@ export function CanvasRoot({ roomId, canvasName, enrollment }: CanvasRootProps) 
 					transition: 'right 280ms cubic-bezier(.22,.61,.36,1)',
 				}}
 			>
-				<Tldraw onMount={onMount} shapeUtils={customShapeUtils} />
+				<Tldraw
+					onMount={onMount}
+					shapeUtils={customShapeUtils}
+					// tldraw v5 added a production licensing model. Without a
+					// licenseKey you get a console warning and a "Get a
+					// license" watermark on the canvas. Set
+					// NEXT_PUBLIC_TLDRAW_LICENSE_KEY in env (free non-commercial
+					// keys at tldraw.dev/community/license) to clear both.
+					// Falls back to no key, which still renders normally but
+					// keeps the watermark.
+					licenseKey={process.env.NEXT_PUBLIC_TLDRAW_LICENSE_KEY}
+				/>
 			</div>
 			<TranscriptDrawer
 				wsRef={wsRef}
