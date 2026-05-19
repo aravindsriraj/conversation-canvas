@@ -1,7 +1,7 @@
 import { google } from '@ai-sdk/google'
-import { generateObject, NoObjectGeneratedError } from 'ai'
+import { NoObjectGeneratedError, streamObject } from 'ai'
 import type { Room } from '@server/room'
-import { ActionStreamSchema, type Action } from '@/lib/actions/schema'
+import { ActionSchema, type Action } from '@/lib/actions/schema'
 import { SYSTEM_PROMPT, buildUserPrompt } from '@/lib/orchestrator/prompt'
 import { makeVoiceAgent } from '@/lib/orchestrator/voice-agent'
 import { classifyTranscript } from '@/lib/orchestrator/classifier'
@@ -113,7 +113,14 @@ export async function runOrchestratorTick(room: Room): Promise<Action[]> {
 
 	const startedAt = Date.now()
 	try {
-		const { object: raw } = await generateObject({
+		// Switch from `generateObject` (single-shot, batch broadcast at the end)
+		// to `streamObject` so each fully-formed action lands on the canvas the
+		// moment Gemini finishes its JSON for that one element. The chat agent
+		// already feels "alive" because `emit_action` tool calls broadcast
+		// shape-by-shape; this mirrors that for voice MODE-A. Total wall-clock
+		// is unchanged (~3-4s) but the FIRST card appears in ~1s instead of
+		// waiting for the whole batch.
+		const stream = streamObject({
 			model: google(MODEL_ID),
 			output: 'no-schema',
 			system: SYSTEM_PROMPT,
@@ -121,37 +128,71 @@ export async function runOrchestratorTick(room: Room): Promise<Action[]> {
 			temperature: 0.2,
 		})
 
+		// Dedup state lives across the stream — actions are validated and
+		// dedup'd one-at-a-time as they finalize, with intra-tick state
+		// updated after each broadcast.
+		const dedup = new StreamingDedup(room)
+		const broadcasted = new Set<number>()
+		let totalSeen = 0
+		let totalEmitted = 0
+		let totalDropped = 0
+
+		// "One-behind" flush: when partial.actions has N items, items
+		// [0..N-2] are complete (the model has moved on); only the last
+		// one (index N-1) may still be growing. This is the cheapest
+		// reliable way to detect "this element is done" without depending
+		// on the SDK exposing per-element completion events.
+		const tryFlush = (index: number, raw: unknown) => {
+			if (broadcasted.has(index)) return
+			// Apply the same Gemini-quirk sanitization the batch path used:
+			// strip nulls, coerce splits, inject ts on proposals if missing.
+			const cleaned = sanitizeRawObject(raw)
+			injectActionTimestamp(cleaned, Date.now())
+			const parsed = ActionSchema.safeParse(cleaned)
+			if (!parsed.success) return // not yet complete (or malformed)
+			broadcasted.add(index)
+			totalSeen += 1
+			const result = dedup.consume(parsed.data)
+			if (!result) {
+				totalDropped += 1
+				return
+			}
+			for (const a of result) {
+				room.recordAction(a)
+				room.broadcast({ kind: 'actions', actions: [a] })
+				totalEmitted += 1
+				console.log(
+					`  + ${a.type}${'id' in a ? ` ${a.id}` : ''} (stream)`,
+				)
+			}
+		}
+
+		for await (const partial of stream.partialObjectStream) {
+			const arr = (partial as { actions?: unknown[] })?.actions
+			if (!Array.isArray(arr)) continue
+			// Flush every element EXCEPT the last (which may still be
+			// growing). The last one is handled below once the stream ends.
+			for (let i = 0; i < arr.length - 1; i++) {
+				tryFlush(i, arr[i])
+			}
+		}
+
+		// Stream finished — final partial pass picks up the last element.
+		const final = await stream.object
+		const finalArr = (final as { actions?: unknown[] })?.actions
+		if (Array.isArray(finalArr)) {
+			for (let i = 0; i < finalArr.length; i++) {
+				tryFlush(i, finalArr[i])
+			}
+		}
+
 		const ms = Date.now() - startedAt
-		const rawPreview = JSON.stringify(raw).slice(0, 1200)
-		console.log(`[orchestrator] gemini raw (${ms}ms):`, rawPreview)
-
-		const cleaned = sanitizeRawObject(raw)
-		injectMissingTimestamps(cleaned, Date.now())
-		const parsed = ActionStreamSchema.safeParse(cleaned)
-
-		if (!parsed.success) {
-			console.error(
-				`[orchestrator] schema validation failed after ${ms}ms`,
-				{ issues: parsed.error.issues.slice(0, 8) },
-			)
-			return []
-		}
-
-		// Server-side dedup pass. Gemini drifts under pressure: across
-		// consecutive ticks with the same transcript window, it will re-emit
-		// near-identical `create_decision_card` actions with slightly different
-		// wording. The prompt asks for `update_card` instead but it's a
-		// suggestion the model frequently ignores. Convert those drift-creates
-		// to update_cards before broadcasting.
-		const filtered = filterDuplicateCreates(parsed.data.actions, room)
-
 		console.log(
-			`[orchestrator] tick: ${transcript.length} transcript segs -> ${filtered.length} actions (was ${parsed.data.actions.length} pre-dedup, ${ms}ms)`,
+			`[orchestrator] tick: ${transcript.length} transcript segs -> ${totalEmitted} actions broadcast (${totalDropped} dedup'd, ${totalSeen} total, ${ms}ms, streaming)`,
 		)
-		for (const a of filtered) {
-			console.log(`  + ${a.type}${'id' in a ? ` ${a.id}` : ''}`)
-		}
-		return filtered
+		// Actions were broadcast inline; return [] so server/index.ts onTick
+		// doesn't re-broadcast a stale batch.
+		return []
 	} catch (err) {
 		const ms = Date.now() - startedAt
 		if (NoObjectGeneratedError.isInstance(err)) {
@@ -350,6 +391,159 @@ export function filterDuplicateCreates(
 	return finalOut
 }
 
+/**
+ * Per-action streaming dedup. Same rules as `filterDuplicateCreates` but
+ * applied one element at a time as the model finalizes them, so we can
+ * broadcast progressively. Maintains the same intra-tick state
+ * (`localLinks`, `localL3IdByType`, `localTextByType`, `broadcastedIds`)
+ * across `consume()` calls.
+ *
+ * `consume(action)` returns:
+ *   - `[action]`            → emit as-is.
+ *   - `[update_card patch]` → the create was deduped, but we synthesized an
+ *                             update_card so the model's refinement intent
+ *                             still lands.
+ *   - `null`                → drop silently (covered by an existing card or
+ *                             an orphan link).
+ *
+ * Exported for unit testing.
+ */
+export class StreamingDedup {
+	private pastByType: Map<string, { id: string; content: string }[]>
+	private pastL3IdByType: Map<string, string>
+	private pastLinks: Set<string>
+	private existingIds: Set<string>
+	private localTextByType: Map<string, { id: string; content: string }[]> = new Map()
+	private localL3IdByType: Map<string, string> = new Map()
+	private localLinks: Set<string> = new Set()
+	// Ids we've already broadcast THIS tick — used so a link_nodes that
+	// references a just-emitted shape isn't treated as an orphan.
+	private broadcastedIds: Set<string> = new Set()
+
+	constructor(room: Room) {
+		this.pastByType = new Map()
+		this.pastL3IdByType = new Map()
+		this.pastLinks = new Set()
+		this.existingIds = new Set()
+		for (const past of room.actionHistory) {
+			if ('id' in past && typeof past.id === 'string') {
+				this.existingIds.add(past.id)
+			}
+			if (past.type === 'link_nodes') {
+				this.pastLinks.add(`${past.from}::${past.to}::${past.kind}`)
+			}
+			if (isL3Widget(past.type) && 'id' in past) {
+				if (!this.pastL3IdByType.has(past.type)) {
+					this.pastL3IdByType.set(past.type, past.id)
+				}
+			}
+			const c = pickContent(past)
+			if (!c) continue
+			const list = this.pastByType.get(past.type) ?? []
+			list.push({ id: 'id' in past ? past.id : '', content: c })
+			this.pastByType.set(past.type, list)
+		}
+	}
+
+	consume(a: Action): Action[] | null {
+		// link_nodes: drop if (from,to,kind) already exists past or
+		// intra-tick. Also drop if either endpoint isn't known anywhere
+		// (orphan link to a deduped id).
+		if (a.type === 'link_nodes') {
+			const key = `${a.from}::${a.to}::${a.kind}`
+			if (this.pastLinks.has(key) || this.localLinks.has(key)) {
+				console.log(
+					`[orchestrator] DEDUP dropped link_nodes (already exists: ${key})`,
+				)
+				return null
+			}
+			const fromKnown =
+				this.existingIds.has(a.from) || this.broadcastedIds.has(a.from)
+			const toKnown =
+				this.existingIds.has(a.to) || this.broadcastedIds.has(a.to)
+			if (!fromKnown || !toKnown) {
+				console.log(
+					`[orchestrator] DEDUP dropped link_nodes (orphan — ${a.from} → ${a.to})`,
+				)
+				return null
+			}
+			this.localLinks.add(key)
+			return [a]
+		}
+
+		// lock_decision orphan: target id was never created.
+		if (a.type === 'lock_decision') {
+			if (
+				!this.existingIds.has(a.id) &&
+				!this.broadcastedIds.has(a.id)
+			) {
+				console.log(
+					`[orchestrator] DEDUP dropped lock_decision (orphan — ${a.id})`,
+				)
+				return null
+			}
+			return [a]
+		}
+
+		// L3 widgets: at most one per type allowed. Convert duplicates to
+		// update_card on the existing widget.
+		if (isL3Widget(a.type) && 'id' in a) {
+			const existingId =
+				this.pastL3IdByType.get(a.type) ?? this.localL3IdByType.get(a.type)
+			if (existingId) {
+				console.log(
+					`[orchestrator] DEDUP dropped ${a.type} (L3 singleton — keeping ${existingId})`,
+				)
+				const patch = l3Patch(a)
+				if (!patch) return null
+				return [{ type: 'update_card', id: existingId, patch }]
+			}
+			this.localL3IdByType.set(a.type, a.id)
+			this.broadcastedIds.add(a.id)
+			return [a]
+		}
+
+		// Text-content cards: dedup by token-overlap against existing peers
+		// (past + intra-tick). For decision cards with refined wording, convert
+		// to update_card on the existing decision so the refinement lands.
+		const content = pickContent(a)
+		if (content) {
+			const peers = [
+				...(this.pastByType.get(a.type) ?? []),
+				...(this.localTextByType.get(a.type) ?? []),
+			]
+			const match = peers.find(
+				(p) => tokenOverlap(p.content, content) >= 0.5,
+			)
+			if (match && 'id' in a) {
+				console.log(
+					`[orchestrator] DEDUP dropped ${a.type} (overlap with ${match.id}) "${content.slice(0, 60)}"`,
+				)
+				if (
+					a.type === 'create_decision_card' &&
+					content !== match.content
+				) {
+					console.log(
+						`[orchestrator]   ↳ converted to update_card on ${match.id}`,
+					)
+					return [
+						{ type: 'update_card', id: match.id, patch: { content } },
+					]
+				}
+				return null
+			}
+			const list = this.localTextByType.get(a.type) ?? []
+			list.push({ id: 'id' in a ? a.id : '', content })
+			this.localTextByType.set(a.type, list)
+		}
+
+		if ('id' in a && typeof a.id === 'string') {
+			this.broadcastedIds.add(a.id)
+		}
+		return [a]
+	}
+}
+
 function isL3Widget(type: string): boolean {
 	return (
 		type === 'create_priority_matrix' ||
@@ -427,21 +621,14 @@ function sanitizeRawObject(value: unknown): unknown {
 }
 
 /**
- * Gemini reliably omits required scalar fields like `ts` from action variants
- * (we ask for a discriminated union; it returns minimal objects). Inject a
- * server-side timestamp for action types whose schema requires one. The
- * server's wall-clock is good enough for ordering and demo display.
+ * Single-action variant of the timestamp injection. Used by the streaming
+ * path where we sanitize + validate one array element at a time.
  */
-function injectMissingTimestamps(obj: unknown, now: number): void {
-	if (!obj || typeof obj !== 'object') return
-	const actions = (obj as { actions?: unknown }).actions
-	if (!Array.isArray(actions)) return
-	for (const action of actions) {
-		if (!action || typeof action !== 'object') continue
-		const a = action as Record<string, unknown>
-		if (a.type === 'create_proposal_card' && typeof a.ts !== 'number') {
-			a.ts = now
-		}
+function injectActionTimestamp(action: unknown, now: number): void {
+	if (!action || typeof action !== 'object') return
+	const a = action as Record<string, unknown>
+	if (a.type === 'create_proposal_card' && typeof a.ts !== 'number') {
+		a.ts = now
 	}
 }
 
