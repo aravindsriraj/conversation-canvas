@@ -29,7 +29,11 @@ When you need current API details, consult these BEFORE pattern-matching against
 
 ## Orchestrator model
 
-The Gemini model for the orchestrator + chat agent is **`gemini-3-flash-preview`** — the full Flash tier. We previously used the lite variant (`gemini-3.1-flash-lite`) for latency, but it was missing proposal-vs-proposal overlap calls and surfaced "Invalid discriminator value" tool errors on edge prompts; full Flash handles the discriminated-union vocabulary more reliably. Keep voice orchestrator (`lib/orchestrator/loop.ts`) and chat agent (`lib/agent/runner.ts`) on the same model so their action-output shapes stay consistent. The memory summarizer (`lib/memory/summarizer.ts`) uses **`gemini-3.1-flash-lite`** — compression doesn't need the full Flash's reasoning, and the lite tier's cost/latency wins matter for a background async pass that fires every 50 messages. Do NOT use `gemini-2.5-flash` or earlier — those are deprecated per the gemini-api-dev skill.
+The Gemini model for the orchestrator + chat agent is **`gemini-3-flash-preview`** — the full Flash tier. On 2026-05-19 we briefly tried `gemini-3.1-flash-lite` for latency on all three sites (chat agent, voice MODE-A, voice MODE-B) and immediately hit malformed tool payload shapes — `{action: "<type>", ...}`, `{<type>: {...}}`, and `{type: "<type>", action: {...}}` — that broke every voice MODE-B emit until we added `normalizePayloadShape` recovery in `lib/actions/dispatch.ts`. Lite also misses subtle proposal-vs-proposal overlap dedup calls. Full Flash is the right baseline.
+
+Keep voice orchestrator (`lib/orchestrator/loop.ts`), voice MODE-B agent (`lib/orchestrator/voice-agent.ts`), and chat agent (`lib/agent/runner.ts`) on the same model so their action-output shapes stay consistent. The memory summarizer (`lib/memory/summarizer.ts`) and the MODE-A/B classifier (`lib/orchestrator/classifier.ts`) use **`gemini-3.1-flash-lite`** — both jobs are simple enough for lite, and the cost/latency wins matter. Do NOT use `gemini-2.5-flash` or earlier — deprecated per the gemini-api-dev skill.
+
+**Keep `normalizePayloadShape` even on Flash.** Flash too occasionally emits the same malformed shapes on edge prompts; the helper is a no-op pass-through when the payload is already correct.
 
 ---
 

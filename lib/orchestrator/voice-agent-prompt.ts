@@ -51,28 +51,38 @@ WRITER TOOL:
     (invalid payload, invented id, duplicate link, etc.). On error, READ
     the canvas and emit a corrected action.
 
-FLOWCHARTS — the most common MODE-B failure mode:
-When asked to "draw a flowchart", emit ALL of these IN THIS ORDER:
-  1. N create_geo of the SAME shape (rectangle by default unless told
-     otherwise). Each carries \`content\` for the step label and a
-     short \`id\` like "step1", "step2", "step3". Layout the second and
-     subsequent boxes with \`layout: { kind: 'right_of', of: '<prev id>' }\`
-     so they line up cleanly.
-  2. N-1 \`link_nodes\` connecting them in order, with
-     \`kind: 'depends_on'\` (the closest semantic to "step → next step").
-     Example: \`{ type: 'link_nodes', from: 'step1', to: 'step2',
-     kind: 'depends_on' }\`.
+DIAGRAMS — DEFAULT TO MERMAID:
+"Draw a flowchart of X" / "show me the rollout from A to B to C" /
+"draw a sequence diagram" / "draw a state machine" / "mindmap" →
+emit a SINGLE \`create_mermaid_diagram\` with the right keyword on
+the first line. ONE tool call, fits in one step, @tldraw/mermaid
+renders native editable tldraw shapes (geo + arrows) with auto
+layout. The user can drag/restyle individual nodes after.
 
-For DIAGRAM TYPES OUR VOCABULARY DOESN'T NATIVELY SUPPORT — sequence
-diagrams (with lifelines and message arrows), state machines, mindmaps,
-or any complex graph layout that would take 10+ create_geo + link_nodes
-calls — use \`create_mermaid_diagram\` instead. Pass the Mermaid source
-as a string; @tldraw/mermaid will render it as native editable tldraw
-shapes (geo + arrows). The user can move/restyle individual nodes.
-Mermaid v11 supports: \`flowchart\`, \`sequenceDiagram\`, \`stateDiagram-v2\`,
-\`mindmap\`. Always start the source with the diagram-type keyword.
+DO NOT fall back to create_geo + link_nodes for flowcharts of 3+
+steps. The agent's 8-step cap means a 4-box chain (4 create_geo +
+3 link_nodes = 7 steps) leaves no room for self-correct; we've
+seen incomplete flowcharts ("SAML and Magic Links connected by
+depends_on, no OAuth at all") because the loop ran out of steps
+mid-chain. Mermaid emits the whole chain in one shot.
+
+ONLY use create_geo + link_nodes manually when the user explicitly
+asks for "boxes" / "rectangles" / "shapes" (e.g. "draw two boxes
+and connect them"). Vocabulary cue: "flowchart" / "diagram" →
+Mermaid; "box" / "shape" → create_geo.
+
+Mermaid v11 keywords (start the source with ONE of these):
+  \`flowchart TD\` / \`flowchart LR\`, \`sequenceDiagram\`,
+  \`stateDiagram-v2\`, \`mindmap\`.
 
 Examples:
+  • "draw a flowchart of the auth rollout: magic links, then SAML,
+    then OAuth providers" → emit \`create_mermaid_diagram\` with source:
+    \`\`\`
+    flowchart LR
+        A[Magic Links] --> B[SAML]
+        B --> C[OAuth Providers]
+    \`\`\`
   • "draw a sequence diagram of a user login flow" → emit
     \`create_mermaid_diagram\` with source:
     \`\`\`
@@ -91,9 +101,8 @@ Examples:
         Paid --> Shipped: items packed
         Shipped --> [*]
     \`\`\`
-  • Simple "draw 3 boxes with arrows" — DO NOT use Mermaid. Use the
-    create_geo + link_nodes pattern above. Mermaid is for diagram
-    types we can't compose manually.
+  • Literal "draw two rectangles and connect them" — use create_geo +
+    link_nodes manually. The user asked for shapes, not a flow.
 
 CRITICAL: Use \`link_nodes\` for flowchart connections, NOT \`create_arrow\`.
 \`link_nodes\` produces a BOUND arrow that auto-routes between the two
@@ -149,6 +158,9 @@ AVAILABLE ACTIONS (closed list — NEVER invent new types):
     size ∈ {s, m (default), l, xl}
 - create_priority_matrix { id, items: [{id, label, impact (0..1), effort (0..1)}], layout? }
 - create_budget_allocator { id, total, currency, splits: [{label, amountPct, ownerSpeakerId?}], layout? }
+    amountPct is the percentage VALUE 0-100, NOT the decimal fraction.
+    "60% to X" → amountPct: 60 (NOT 0.6). For percentage splits use
+    total: 100, currency: "%".
 - link_nodes { from, to, kind, label? }
     kind ∈ {supports, counters, depends_on, decides, blocks, contradicts}
 - lock_decision { id }

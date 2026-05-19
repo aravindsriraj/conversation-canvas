@@ -7,12 +7,12 @@ import { makeVoiceAgent } from '@/lib/orchestrator/voice-agent'
 import { classifyTranscript } from '@/lib/orchestrator/classifier'
 import type { TranscriptSegment } from '@/lib/speechmatics/client'
 
-// gemini-3-flash-preview — the full Flash tier. We moved off the lite variant
-// (`gemini-3.1-flash-lite`) because the orchestrator's job is
-// classification + dedup + relation inference, and the lite tier was missing
-// subtle "this proposal vs. that proposal" overlap calls. Flash takes the
-// quality hit on cost / latency in exchange. If latency becomes a problem
-// again, the fallback is `gemini-3.1-flash-lite`.
+// `gemini-3-flash-preview` — the full Flash tier. Briefly tried the lite
+// variant (`gemini-3.1-flash-lite`) for latency during demo bring-up but
+// reverted: lite emits malformed action payload shapes (action-as-wrapper,
+// type-as-wrapper, etc.) and misses proposal-vs-proposal overlap calls.
+// `normalizePayloadShape` in dispatch.ts is kept as a safety net since
+// Flash too occasionally trips on discriminator-shape edge prompts.
 const MODEL_ID = 'gemini-3-flash-preview'
 
 /**
@@ -120,12 +120,22 @@ export async function runOrchestratorTick(room: Room): Promise<Action[]> {
 		// shape-by-shape; this mirrors that for voice MODE-A. Total wall-clock
 		// is unchanged (~3-4s) but the FIRST card appears in ~1s instead of
 		// waiting for the whole batch.
+		// Safety net: a hung Gemini request would block every future tick in
+		// this room (orchestratorBusy mutex never releases). 25s cap is well
+		// above our p95 (~3-5s observed; 21s for an unusually long compound
+		// tick). If we hit it, AbortController kills the stream, the
+		// partialObjectStream throws, the catch logs it, and the mutex
+		// releases — next tick can proceed.
+		const ac = new AbortController()
+		const timeoutHandle = setTimeout(() => ac.abort(), 25_000)
+
 		const stream = streamObject({
 			model: google(MODEL_ID),
 			output: 'no-schema',
 			system: SYSTEM_PROMPT,
 			prompt: userPrompt,
 			temperature: 0.2,
+			abortSignal: ac.signal,
 		})
 
 		// Dedup state lives across the stream — actions are validated and
@@ -136,16 +146,20 @@ export async function runOrchestratorTick(room: Room): Promise<Action[]> {
 		let totalSeen = 0
 		let totalEmitted = 0
 		let totalDropped = 0
+		// Track the most recent partial so we can flush its full contents
+		// after the stream ends. We deliberately DON'T `await stream.object`
+		// because in `output: 'no-schema'` mode that promise can hang on
+		// some unhappy paths (we hit one in testing — silent indefinite
+		// stall). The last partial we observed is, by construction, the
+		// complete object once the for-await loop has exited.
+		let lastPartial: { actions?: unknown[] } | null = null
 
-		// "One-behind" flush: when partial.actions has N items, items
-		// [0..N-2] are complete (the model has moved on); only the last
-		// one (index N-1) may still be growing. This is the cheapest
-		// reliable way to detect "this element is done" without depending
-		// on the SDK exposing per-element completion events.
+		// Flush a single action by array index. The "one-behind" pattern
+		// during streaming means we only call this for indices that the
+		// model has already moved past; for the final flush after the
+		// stream ends we walk the whole array.
 		const tryFlush = (index: number, raw: unknown) => {
 			if (broadcasted.has(index)) return
-			// Apply the same Gemini-quirk sanitization the batch path used:
-			// strip nulls, coerce splits, inject ts on proposals if missing.
 			const cleaned = sanitizeRawObject(raw)
 			injectActionTimestamp(cleaned, Date.now())
 			const parsed = ActionSchema.safeParse(cleaned)
@@ -167,19 +181,26 @@ export async function runOrchestratorTick(room: Room): Promise<Action[]> {
 			}
 		}
 
-		for await (const partial of stream.partialObjectStream) {
-			const arr = (partial as { actions?: unknown[] })?.actions
-			if (!Array.isArray(arr)) continue
-			// Flush every element EXCEPT the last (which may still be
-			// growing). The last one is handled below once the stream ends.
-			for (let i = 0; i < arr.length - 1; i++) {
-				tryFlush(i, arr[i])
+		try {
+			for await (const partial of stream.partialObjectStream) {
+				lastPartial = partial as { actions?: unknown[] } | null
+				const arr = lastPartial?.actions
+				if (!Array.isArray(arr)) continue
+				// Flush every element EXCEPT the last (which may still be
+				// growing). The tail is handled below once the stream ends.
+				for (let i = 0; i < arr.length - 1; i++) {
+					tryFlush(i, arr[i])
+				}
 			}
+		} finally {
+			// Always clear the abort timer, whether the stream completed
+			// naturally or threw mid-flight. Otherwise the timer keeps
+			// the Node event loop alive for the full 25s.
+			clearTimeout(timeoutHandle)
 		}
 
-		// Stream finished — final partial pass picks up the last element.
-		const final = await stream.object
-		const finalArr = (final as { actions?: unknown[] })?.actions
+		// Stream finished — final pass picks up the last element.
+		const finalArr = lastPartial?.actions
 		if (Array.isArray(finalArr)) {
 			for (let i = 0; i < finalArr.length; i++) {
 				tryFlush(i, finalArr[i])

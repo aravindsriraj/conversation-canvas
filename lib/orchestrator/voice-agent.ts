@@ -35,6 +35,9 @@ import type { Room } from '@server/room'
  * everything else stays on the ~5-15s generateObject single-shot path.
  */
 
+// Full Flash tier. Briefly tried `gemini-3.1-flash-lite` for latency during
+// demo bring-up — reverted because lite emits malformed action payload
+// shapes that needed `normalizePayloadShape` recovery to even render.
 const MODEL_ID = 'gemini-3-flash-preview'
 
 /**
@@ -209,6 +212,41 @@ export function dedupSingleAction(
 		return { ok: true }
 	}
 
+	// Mermaid diagram dedup. The 90s transcript window means a single
+	// "draw a sequence diagram of the login flow" stays in the buffer
+	// and re-fires MODE-B on every subsequent tick (silence, partial new
+	// speech, anything). Without this gate, the canvas accumulates 2-3
+	// identical sequence diagrams stacked on top of each other.
+	//
+	// Strategy: parse the diagram type from the first non-blank line of
+	// the source (sequenceDiagram / flowchart / stateDiagram-v2 / mindmap).
+	// If a diagram of the same type already exists with >= 50% token
+	// overlap on the source, drop the duplicate. Different types co-exist
+	// fine (a flowchart and a sequence diagram on the same canvas is
+	// the documented demo flow).
+	if (action.type === 'create_mermaid_diagram') {
+		const diagramType = mermaidDiagramType(action.source)
+		const tickKey = `mermaid::${diagramType}`
+		if (dedupSet.has(tickKey)) {
+			return {
+				ok: false,
+				reason: `${diagramType} already emitted in this tick — don't re-emit`,
+			}
+		}
+		for (const past of room.actionHistory) {
+			if (past.type !== 'create_mermaid_diagram') continue
+			if (mermaidDiagramType(past.source) !== diagramType) continue
+			if (mermaidSourceOverlap(past.source, action.source) >= 0.5) {
+				return {
+					ok: false,
+					reason: `a ${diagramType} with similar content already exists on the canvas — don't draw a duplicate. If the user wants edits, emit update_card on a specific shape inside the diagram instead.`,
+				}
+			}
+		}
+		dedupSet.add(tickKey)
+		return { ok: true }
+	}
+
 	// Track create ids so later actions in the same tick (e.g. a link
 	// referencing a just-created box) can validate against the live tick
 	// state, not only room.canvasShapes.
@@ -216,4 +254,45 @@ export function dedupSingleAction(
 		dedupSet.add(`shape::${action.id}`)
 	}
 	return { ok: true }
+}
+
+/**
+ * Pull the diagram type keyword from the first non-blank line of a Mermaid
+ * source. `flowchart TD` / `flowchart LR` / etc. all collapse to `flowchart`
+ * so two flowcharts about the same topic dedupe each other regardless of
+ * orientation. Falls back to the raw first line if no known keyword is
+ * present — the model's free to invent diagrams, we just want a stable bucket.
+ */
+function mermaidDiagramType(source: string): string {
+	const first = source
+		.split('\n')
+		.map((l) => l.trim())
+		.find((l) => l.length > 0) ?? ''
+	const kw = first.split(/\s+/)[0] ?? ''
+	// Normalize `flowchart TD` → `flowchart`. Other v11 types are
+	// already single-token (sequenceDiagram / stateDiagram-v2 / mindmap).
+	return kw.replace(/^flowchart$/i, 'flowchart')
+}
+
+/**
+ * Jaccard-style token overlap of two Mermaid sources, lowercased, ≥3 chars.
+ * Same shape as the orchestrator's tokenOverlap helper. 0.5 catches the
+ * "re-emit on next tick because the transcript is still in the window"
+ * case without false-positive-blocking the second legitimate
+ * "draw a different sequence diagram" command (which has different actors).
+ */
+function mermaidSourceOverlap(a: string, b: string): number {
+	const tokens = (s: string) =>
+		new Set(
+			s
+				.toLowerCase()
+				.split(/[^a-z0-9]+/)
+				.filter((w) => w.length >= 3),
+		)
+	const ta = tokens(a)
+	const tb = tokens(b)
+	if (ta.size === 0 || tb.size === 0) return 0
+	let inter = 0
+	for (const t of ta) if (tb.has(t)) inter += 1
+	return inter / Math.min(ta.size, tb.size)
 }

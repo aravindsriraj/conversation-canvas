@@ -89,6 +89,26 @@ function getExistingBoxes(editor: Editor): {
 	return { byId, byType }
 }
 
+/**
+ * Detect & repair the "60% → 0.6 instead of 60" LLM mistake. If every
+ * split's amountPct is < 1.5 (i.e. all decimal fractions), the model
+ * converted percentages to decimal form. Scale ×100 so the renderer
+ * prints "60%" not "0.6$". Returns the original array if values already
+ * look like percentage points — no false-positive on legitimate budgets
+ * like 50/50 (both 50, max 50, untouched).
+ *
+ * Threshold 1.5 (not 1.0) gives a hair of slack for floating-point
+ * rounding without catching legitimate "1%" allocations.
+ */
+function normalizeBudgetSplits(
+	splits: { label: string; amountPct: number; ownerSpeakerId?: string }[],
+): { label: string; amountPct: number; ownerSpeakerId?: string }[] {
+	if (splits.length === 0) return splits
+	const max = Math.max(...splits.map((s) => s.amountPct))
+	if (max >= 1.5) return splits // already in 0..100 percentage form
+	return splits.map((s) => ({ ...s, amountPct: Math.round(s.amountPct * 100) }))
+}
+
 export function applyAction(editor: Editor, action: Action, speakers: Registry) {
 	const { byId: existing, byType: existingByType } = getExistingBoxes(editor)
 
@@ -445,6 +465,23 @@ export function applyAction(editor: Editor, action: Action, speakers: Registry) 
 					)
 				}
 			}
+			// Defensive: same decimal-fraction normalization the create
+			// path runs. update_card patches a budget-allocator's `splits`
+			// frequently re-introduce the 0.6/0.3/0.1 mistake when the
+			// user asks the agent to "correct it" — the agent often
+			// echoes the same wrong values back.
+			if (s.type === 'budget-allocator' && Array.isArray(allowed.splits)) {
+				const before = allowed.splits as { amountPct: number }[]
+				const normalized = normalizeBudgetSplits(
+					before as { label: string; amountPct: number; ownerSpeakerId?: string }[],
+				)
+				if (normalized !== before) {
+					allowed.splits = normalized
+					// Rebuild total + currency too — same heuristic as create.
+					allowed.total = normalized.reduce((sum, x) => sum + x.amountPct, 0)
+					allowed.currency = '%'
+				}
+			}
 			if (Object.keys(allowed).length > 0) {
 				editor.updateShape({
 					id: tid,
@@ -477,18 +514,26 @@ export function applyAction(editor: Editor, action: Action, speakers: Registry) 
 				defaultW: 380,
 				defaultH: 240,
 			})
+			// Defensive: the schema accepts amountPct 0..100 but LLMs often
+			// interpret "60%" as 0.6 (the math conversion) instead of 60
+			// (the percentage value). If every split is < 1.5, the model
+			// emitted decimal fractions — scale ×100 and force currency '%'
+			// so the renderer prints "60%" instead of "0.6$". Sum is rebuilt
+			// from the scaled splits.
+			const splits = normalizeBudgetSplits(action.splits)
+			const looksLikeFractions = splits !== action.splits
+			const total = looksLikeFractions
+				? splits.reduce((s, x) => s + x.amountPct, 0)
+				: action.total
+			const currency = looksLikeFractions
+				? '%'
+				: action.currency ?? '%'
 			createShapeIfMissing(editor, {
 				id: tldrawId(action.id),
 				type: 'budget-allocator',
 				x: layout.x,
 				y: layout.y,
-				props: {
-					w: 380,
-					h: 240,
-					total: action.total,
-					currency: action.currency ?? '%',
-					splits: action.splits,
-				},
+				props: { w: 380, h: 240, total, currency, splits },
 			})
 			break
 		}

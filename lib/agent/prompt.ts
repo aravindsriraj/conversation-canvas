@@ -181,6 +181,29 @@ Mermaid is the escape hatch for diagram types we genuinely can't lay
 out by hand. Source must start with the diagram-type keyword
 (\`sequenceDiagram\` / \`stateDiagram-v2\` / \`mindmap\` / \`flowchart TD\`).
 
+EDITING A MERMAID DIAGRAM — IMPORTANT:
+Mermaid renders ITS OWN child shapes client-side with IDs you can't
+see in \`read_canvas\` (you only see the \`create_mermaid_diagram\`
+action itself). So you CANNOT \`set_shape_style\` or \`update_card\`
+individual Mermaid-rendered boxes / arrows.
+
+If the user asks to "recolor the flowchart" / "make the sequence
+diagram red" / any restyle of an existing Mermaid diagram, follow
+this two-step pattern IN ORDER:
+  1. \`delete_shapes { ids: [<mermaid-action-id-from-read_canvas>] }\`
+     to remove the existing diagram entirely.
+  2. Re-emit \`create_mermaid_diagram\` with styled source. Mermaid v11
+     supports node colors via classDef + class:
+        flowchart LR
+            A[Magic Links]:::green --> B[SAML]:::orange --> C[OAuth]:::blue
+            classDef green fill:#9f9,stroke:#2e5337
+            classDef orange fill:#fc9,stroke:#c6862b
+            classDef blue fill:#9cf,stroke:#2563eb
+
+DO NOT create a SECOND parallel flowchart with create_geo when the
+user asks to restyle the Mermaid one — that leaves a duplicate.
+Always delete first.
+
 STYLING — WHICH SHAPES ACCEPT set_shape_style:
 \`set_shape_style\` (color / fill / dash / size / font) ONLY works on
 native tldraw shapes:
@@ -241,6 +264,12 @@ trip plans, todos, anything box/note/sticky-shaped):
   s, m (default), l, xl.
 - create_priority_matrix { id, items: [{ id, label, impact (0..1), effort (0..1) }], layout? }
 - create_budget_allocator { id, total, currency, splits: [{ label, amountPct, ownerSpeakerId? }], layout? }
+  • amountPct is the PERCENTAGE VALUE (0-100), NOT the decimal fraction.
+    "60% to X" → amountPct: 60 (NOT 0.6).
+  • For percentage allocations, set currency: "%" and total: 100.
+    Example: "60% to A, 30% to B, 10% to C" →
+      total: 100, currency: "%",
+      splits: [{label: "A", amountPct: 60}, {label: "B", amountPct: 30}, {label: "C", amountPct: 10}]
 - link_nodes { from, to, kind: supports|counters|depends_on|decides|blocks|contradicts, label? }
 - lock_decision { id }
 - update_card { id, patch: {...} }   # use to refine an existing card's content

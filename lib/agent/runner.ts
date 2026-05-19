@@ -12,8 +12,10 @@ import type { Room } from '@server/room'
 // Same model as the voice orchestrator — full Flash tier. The agent needs
 // the same classification quality the voice loop does (it picks from the
 // same Action discriminated union), so keeping them in lockstep is the
-// right call. If we ever want a cheaper conversational reply path with no
-// emit_action, the lite variant would be a fine drop-in.
+// right call. Briefly tried `gemini-3.1-flash-lite` for latency during demo
+// bring-up (2026-05-19) but reverted — lite emits malformed action payload
+// shapes that needed the `normalizePayloadShape` recovery in dispatch.ts to
+// even render. Flash is the safer baseline.
 const MODEL_ID = 'gemini-3-flash-preview'
 
 /**

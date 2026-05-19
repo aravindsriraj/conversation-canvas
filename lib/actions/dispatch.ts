@@ -63,7 +63,7 @@ export function prepareAction(
 	room: Room,
 	surface: 'agent' | 'voice' = 'agent',
 ): PrepareResult {
-	const cleaned = stripNulls(raw)
+	const cleaned = normalizePayloadShape(stripNulls(raw), surface)
 	if (cleaned && typeof cleaned === 'object') {
 		const obj = cleaned as Record<string, unknown>
 		const t = obj.type
@@ -136,14 +136,87 @@ export function prepareAction(
 		return { ok: false, error: `invalid action — ${summary}` }
 	}
 
-	const action = parsed.data
+	let action = parsed.data
 	const refError = validateActionRefs(action, room)
 	if (refError) {
 		console.warn(`[${surface}] action rejected (bad refs): ${refError}`)
 		return { ok: false, error: refError }
 	}
 
+	// Canonicalize budget allocator percentages at the server so the
+	// recorded action history + every client (incl. future snapshot
+	// reloads) sees the corrected values. Mirrors the defense in
+	// `apply.ts` but runs BEFORE record+broadcast. Empirically the
+	// model emits "60%" as `0.6` (the math conversion) about half the
+	// time — schema accepts both since both are in [0..100].
+	action = canonicalizeBudgetAction(action, surface)
+
 	return { ok: true, action }
+}
+
+/**
+ * Server-side mirror of `normalizeBudgetSplits` in apply.ts. If a
+ * `create_budget_allocator` (or `update_card` patching `splits`) carries
+ * decimal-fraction amountPct values (max < 1.5), scale ×100 and force
+ * currency '%'. Runs after schema validation so the input is already a
+ * typed Action.
+ */
+function canonicalizeBudgetAction(action: Action, surface: string): Action {
+	if (action.type === 'create_budget_allocator') {
+		console.log(
+			`[${surface}] DEBUG create_budget_allocator pre-canonicalize: total=${action.total} currency=${action.currency} splits=${JSON.stringify(action.splits)}`,
+		)
+		const max = Math.max(...action.splits.map((s) => s.amountPct))
+		if (max < 1.5 && action.splits.length > 0) {
+			const splits = action.splits.map((s) => ({
+				...s,
+				amountPct: Math.round(s.amountPct * 100),
+			}))
+			const total = splits.reduce((sum, s) => sum + s.amountPct, 0)
+			console.log(
+				`[${surface}] canonicalized create_budget_allocator: splits scaled ×100 (max was ${max}); currency forced to '%'`,
+			)
+			return { ...action, splits, total, currency: '%' }
+		}
+	}
+	if (action.type === 'update_card') {
+		const patch = action.patch as { splits?: unknown } | undefined
+		if (patch && Array.isArray(patch.splits)) {
+			const splits = patch.splits as { amountPct?: number; label?: string }[]
+			const validAmounts = splits
+				.map((s) => s.amountPct)
+				.filter((n): n is number => typeof n === 'number')
+			if (validAmounts.length > 0) {
+				const max = Math.max(...validAmounts)
+				if (max < 1.5) {
+					const fixedSplits = splits.map((s) => ({
+						...s,
+						amountPct:
+							typeof s.amountPct === 'number'
+								? Math.round(s.amountPct * 100)
+								: s.amountPct,
+					}))
+					const total = fixedSplits.reduce(
+						(sum, s) => sum + (typeof s.amountPct === 'number' ? s.amountPct : 0),
+						0,
+					)
+					console.log(
+						`[${surface}] canonicalized update_card.splits: scaled ×100 (max was ${max}); patch.total=${total}, currency='%'`,
+					)
+					return {
+						...action,
+						patch: {
+							...(action.patch as Record<string, unknown>),
+							splits: fixedSplits,
+							total,
+							currency: '%',
+						},
+					}
+				}
+			}
+		}
+	}
+	return action
 }
 
 /**
@@ -250,6 +323,131 @@ function validateLayout(
 		default:
 			return `layout.kind="${kind}" not in {below,above,right_of,left_of,inside_frame,grid,cluster_with}`
 	}
+}
+
+/**
+ * Set of every valid Action discriminator value. Used by
+ * `normalizePayloadShape` to detect when the model has mis-shaped its
+ * payload (e.g. used a field called `action` as the discriminator instead
+ * of `type`). Kept in lockstep with the ActionSchema discriminator list —
+ * if you add a new action type, append it here.
+ */
+const KNOWN_ACTION_TYPES = new Set<string>([
+	'create_proposal_card',
+	'create_decision_card',
+	'create_commitment_card',
+	'create_blocker_card',
+	'create_question_card',
+	'group_into_frame',
+	'create_note',
+	'create_geo',
+	'create_text',
+	'link_nodes',
+	'lock_decision',
+	'update_card',
+	'create_priority_matrix',
+	'create_budget_allocator',
+	'create_gantt',
+	'create_bespoke_widget',
+	'delete_shapes',
+	'move_shape',
+	'resize_shape',
+	'set_shape_style',
+	'align_shapes',
+	'distribute_shapes',
+	'reorder_shapes',
+	'zoom_to_shapes',
+	'create_arrow',
+	'create_mermaid_diagram',
+])
+
+/**
+ * Recover from three well-observed mis-shaped payloads from
+ * `gemini-3.1-flash-lite`. All three are downstream of the tool input
+ * field being named `action` — the model confuses that field name for
+ * the discriminator key (or vice-versa) and emits the action object
+ * in a shape we don't expect.
+ *
+ * Patterns observed in pm2 logs (2026-05-19):
+ *
+ *  1. Flat-with-action-key:
+ *     `{ action: "create_mermaid_diagram", source: "..." }`
+ *     The discriminator IS named `action` but should be `type`. Rename.
+ *
+ *  2. Wrapped-by-type-key:
+ *     `{ create_mermaid_diagram: { source: "..." } }`
+ *     The action type is used as the outer wrapper key. Unwrap.
+ *
+ *  3. Type-plus-nested-payload (the budget-allocator regression):
+ *     `{ type: "create_budget_allocator", action: { id, total, splits, ... } }`
+ *     `type` is at the top level but the payload is nested under
+ *     `action`. Lift the inner object's fields up to the top, keep
+ *     `type`, drop the `action` wrapper.
+ *
+ * Once the model emits a correctly-shaped payload (`{ type, ... }`),
+ * this helper is a no-op pass-through. If lite emits a new mis-shape
+ * we haven't seen yet, the existing prepareAction warning logs will
+ * surface it — add a new pattern here.
+ */
+function normalizePayloadShape(raw: unknown, surface: string): unknown {
+	if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return raw
+	const obj = raw as Record<string, unknown>
+
+	// Pattern 3 (check FIRST — both `type` and `action` present, with
+	// `action` an object): unwrap the nested payload and merge under
+	// the top-level `type`. Without this guard, pattern 1's check
+	// would mis-fire because `obj.action` is an object, not a string.
+	if (
+		typeof obj.type === 'string' &&
+		KNOWN_ACTION_TYPES.has(obj.type) &&
+		obj.action &&
+		typeof obj.action === 'object' &&
+		!Array.isArray(obj.action)
+	) {
+		console.log(
+			`[${surface}] normalized payload shape: { type: "${obj.type}", action: {...} } → flat { type, ...inner }`,
+		)
+		const { action, type, ...rest } = obj
+		// Inner action's fields take precedence over outer siblings —
+		// the model put the real data there.
+		return { type, ...rest, ...(action as Record<string, unknown>) }
+	}
+
+	// Pattern 1: `{ action: "<type>", ... }` — `action` field name is
+	// the actual discriminator. Rename to `type`.
+	if (
+		typeof obj.action === 'string' &&
+		KNOWN_ACTION_TYPES.has(obj.action) &&
+		typeof obj.type !== 'string'
+	) {
+		console.log(
+			`[${surface}] normalized payload shape: { action: "${obj.action}", ... } → { type: "${obj.action}", ... }`,
+		)
+		const { action, ...rest } = obj
+		return { type: action, ...rest }
+	}
+
+	// Pattern 2: `{ "<type>": { ...payload } }` — wrapper key IS the
+	// action type. Unwrap. Only fire when there's exactly one key AND
+	// that key is a known action type AND its value is an object.
+	const keys = Object.keys(obj)
+	if (keys.length === 1) {
+		const k = keys[0]
+		const v = obj[k]
+		if (
+			KNOWN_ACTION_TYPES.has(k) &&
+			v &&
+			typeof v === 'object' &&
+			!Array.isArray(v)
+		) {
+			console.log(
+				`[${surface}] normalized payload shape: { ${k}: {...} } → { type: "${k}", ...inner }`,
+			)
+			return { type: k, ...(v as Record<string, unknown>) }
+		}
+	}
+
+	return raw
 }
 
 function inferActionType(o: Record<string, unknown>): string | null {
