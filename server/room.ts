@@ -361,8 +361,25 @@ export class Room {
 
 	broadcast(payload: unknown) {
 		const msg = JSON.stringify(payload)
+		let sent = 0
+		let stale = 0
 		for (const c of this.clients) {
-			if (c.socket.readyState === 1) c.socket.send(msg)
+			if (c.socket.readyState === 1) {
+				c.socket.send(msg)
+				sent++
+			} else {
+				stale++
+			}
+		}
+		const kind =
+			payload && typeof payload === 'object' && 'kind' in payload
+				? (payload as { kind: string }).kind
+				: 'unknown'
+		if (kind === 'actions') {
+			const n = (payload as { actions?: unknown[] }).actions?.length ?? 0
+			console.log(
+				`[room ${this.id}] broadcast actions n=${n} clients=${this.clients.size} sent=${sent} stale=${stale}`,
+			)
 		}
 	}
 }

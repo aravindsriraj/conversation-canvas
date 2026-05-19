@@ -326,11 +326,17 @@ export function CanvasRoot({ roomId, canvasName, enrollment }: CanvasRootProps) 
 					if (m.kind === 'history') sendEnrollment()
 					const actions = m.actions ?? []
 					const editor = editorRef.current
+					console.log(
+						`[canvas] WS ${m.kind} n=${actions.length} editor=${!!editor}`,
+					)
 					if (!editor) {
 						// If the editor hasn't mounted yet (race during page load), the
 						// history is dropped. The server replays history only on join,
 						// so this only matters when there's pre-existing room state at
 						// load time. Demo flows start with an empty room, so acceptable.
+						console.warn(
+							`[canvas] WS ${m.kind} arrived BEFORE editor mounted — dropping ${actions.length} action(s). This is the bug if you see it on a fresh empty room.`,
+						)
 						return
 					}
 					let appliedAny = false
@@ -342,6 +348,9 @@ export function CanvasRoot({ roomId, canvasName, enrollment }: CanvasRootProps) 
 							try {
 								applyAction(editor, a, speakersRef.current)
 								appliedAny = true
+								console.log(
+									`[canvas] applied ${a.type}${'id' in a ? ` ${a.id}` : ''}`,
+								)
 							} catch (err) {
 								console.error('[canvas] applyAction failed', err, a)
 							}

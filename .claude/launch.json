@@ -1,11 +1,17 @@
 {
-	"version": "0.0.1",
-	"configurations": [
-		{
-			"name": "next-dev",
-			"runtimeExecutable": "pnpm",
-			"runtimeArgs": ["dev:next"],
-			"port": 3000
-		}
-	]
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "prod-local",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["start"],
+      "port": 3000
+    },
+    {
+      "name": "dev",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["dev"],
+      "port": 3000
+    }
+  ]
 }
