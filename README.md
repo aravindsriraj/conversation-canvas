@@ -6,9 +6,6 @@
 
 > A voice-first thinking canvas. Talk through a decision, a plan, or a problem; what you say becomes typed cards you can keep refining by voice or chat.
 
-**Live demo · [canvas.ai-application.xyz](https://canvas.ai-application.xyz)**
-
-Built for **Milan AI Week 2026**.
 
 ---
 
